@@ -74,5 +74,8 @@ Estudiante de Ingeniería en Informática - Universidad del Salvador (USAL).
 
 ---
 
-## ⚖️ Licencia
-Este proyecto se distribuye bajo la licencia **MIT**. Consulte el archivo `LICENSE` para más detalles.
+## ⚖️ Licencia y Propiedad Intelectual
+**ConstructING - Ecosistema de Gestión y Auditoría Técnica de Obras.**
+Copyright (c) 2026 Nicolas Sebastian del Rio. All rights reserved.
+
+Este proyecto es de código cerrado y propiedad intelectual exclusiva de su autor. Ninguna parte de este software, documentación (incluyendo especificaciones de requerimientos, diagramas UML, Modelo Entidad-Relación y prototipos) o archivos asociados puede ser reproducida, distribuida o transmitida en forma alguna o por ningún medio, sin la autorización expresa y por escrito del autor.
