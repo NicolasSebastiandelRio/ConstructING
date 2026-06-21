@@ -60,10 +60,7 @@ Para garantizar robustez y escalabilidad, el ecosistema se basa en:
 ---
 
 ## 📁 Estructura del Repositorio
-*   [`/docs`](/docs): Documentación técnica, SRS y Project Charter.
-*   [`/design`](/design): Wireframes, Assets de marca y links a Figma.
-*   [`/database`](/database): Diagramas DER y scripts de migración.
-*   [`/diagrams`](/diagrams): Casos de uso y diagramas de secuencia UML.
+*   [`/docs`](/docs): Documentación técnica integral del proyecto.
 
 ---
 
