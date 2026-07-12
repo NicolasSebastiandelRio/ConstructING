@@ -49,7 +49,7 @@ Para garantizar robustez y escalabilidad, el ecosistema se basa en:
 *   [x] Diseño de Modelo Entidad-Relación (DER).
 *   [x] Especificación de Casos de Uso y Diagramas UML.
 *   [x] Prototipado de Alta Fidelidad en Figma.
-*   [ ] Armado de tablero gantt
+*   [x] Armado de tablero gantt
 
 ### Fase 2: Desarrollo y Entrega (Q2 2026) 🚀
 *   [ ] Configuración de entorno Backend y Base de Datos.
@@ -67,7 +67,7 @@ Para garantizar robustez y escalabilidad, el ecosistema se basa en:
 ## 👤 Autor
 **Nicolas Sebastian del Rio**  
 Estudiante de Ingeniería en Informática - Universidad del Salvador (USAL).  
-[GitHub](https://github.com/nicolassebastiandelrio) | [Portfolio](https://nicolassebastiandelrio.github.io/webPortfolio/)
+[GitHub](https://github.com/nicolassebastiandelrio) | [Portfolio]([https://nicolassebastiandelrio.github.io/webPortfolio/](https://nicolassebastiandelrio.github.io/portfolioWeb-ndelrio/))
 
 ---
 
