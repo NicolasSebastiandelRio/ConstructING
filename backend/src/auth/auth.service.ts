@@ -1,28 +1,24 @@
 import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
-
-// Interfaz estricta para tipar los usuarios en memoria (previene el error 'never')
-interface User {
-  id: string;
-  email: string;
-  password: string;
-  role: string;
-}
+import { UserEntity } from './user.entity';
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly jwtService: JwtService) {}
-
-  // Tipamos explícitamente el arreglo como User[]
-  private readonly users: User[] = [];
+  constructor(
+    @InjectRepository(UserEntity)
+    private readonly userRepository: Repository<UserEntity>,
+    private readonly jwtService: JwtService,
+  ) {}
 
   /**
    * CU-06 y CU-11: Registro y Encriptación de Credenciales
    */
   async register(dto: { email: string; password: string; role: string }) {
-    // CU-10: Validar unicidad de identidad
-    const existingUser = this.users.find((u) => u.email === dto.email);
+    // CU-10: Validar unicidad en la base de datos real
+    const existingUser = await this.userRepository.findOne({ where: { email: dto.email } });
     if (existingUser) {
       throw new ConflictException('El correo ya se encuentra en uso.');
     }
@@ -31,14 +27,16 @@ export class AuthService {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(dto.password, saltRounds);
 
-    const newUser: User = {
-      id: Date.now().toString(),
+    // Creamos la instancia de la entidad (Patrón Data Mapper)
+    const newUser = this.userRepository.create({
       email: dto.email,
-      password: hashedPassword,
+      passwordHash: hashedPassword,
       role: dto.role,
-    };
+    });
 
-    this.users.push(newUser);
+    // Persistimos en PostgreSQL (Supabase)
+    await this.userRepository.save(newUser);
+    
     return { message: 'Usuario registrado exitosamente', userId: newUser.id };
   }
 
@@ -46,12 +44,12 @@ export class AuthService {
    * CU-01 y CU-02: Inicio de Sesión y Validación de Credenciales
    */
   async login(dto: { email: string; password: string }) {
-    const user = this.users.find((u) => u.email === dto.email);
+    const user = await this.userRepository.findOne({ where: { email: dto.email } });
     if (!user) {
       throw new UnauthorizedException('Credenciales inválidas.');
     }
 
-    const isPasswordValid = await bcrypt.compare(dto.password, user.password);
+    const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Credenciales inválidas.');
     }
