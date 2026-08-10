@@ -16,4 +16,7 @@ export class UserEntity {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
+@Column({ name: 'recovery_code', type: 'varchar', nullable: true })
+  recoveryCode: string | null;
 }

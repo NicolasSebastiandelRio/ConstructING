@@ -27,4 +27,33 @@ export class AuthController {
   ) {
     return this.authService.login(dto);
   }
+
+  /**
+   * Endpoint: Solicitar Código de Recuperación (CU-03)
+   */
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  async forgotPassword(@Body() dto: { email: string }) {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  /**
+   * Endpoint: Restablecer Contraseña (CU-03)
+   */
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(
+    @Body() dto: { email: string; code: string; newPassword: string },
+  ) {
+    return this.authService.resetPassword(dto);
+  }
+
+  /**
+   * Endpoint de Cierre de Sesión (CU-04)
+   */
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout() {
+    return this.authService.logout();
+  }
 }

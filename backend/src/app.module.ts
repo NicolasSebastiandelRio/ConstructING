@@ -1,15 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { MailerModule } from '@nestjs-modules/mailer'; // <-- Nueva importación
 import { AuthModule } from './auth/auth.module';
 import { UserEntity } from './auth/user.entity';
 
 @Module({
   imports: [
-    // 1. Cargamos las variables de entorno globalmente (.env)
     ConfigModule.forRoot({ isGlobal: true }),
     
-    // 2. Configuramos la conexión a Supabase (El "DataSource" faltante)
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -21,12 +20,31 @@ import { UserEntity } from './auth/user.entity';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
         entities: [UserEntity],
-        synchronize: true, // Sincroniza el DER con Supabase automáticamente
+        synchronize: true,
         ssl: { rejectUnauthorized: false }
       }),
     }),
+
+    // Configuración del servidor de correos
+    MailerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        transport: {
+          host: configService.get<string>('SMTP_HOST'),
+          port: configService.get<number>('SMTP_PORT'),
+          secure: false, // Ethereal usa STARTTLS en el puerto 587
+          auth: {
+            user: configService.get<string>('SMTP_USER'),
+            pass: configService.get<string>('SMTP_PASS'),
+          },
+        },
+        defaults: {
+          from: '"Equipo ConstructING" <noreply@construct.ing>',
+        },
+      }),
+    }),
     
-    // 3. Importamos el módulo de identidad
     AuthModule,
   ],
 })
