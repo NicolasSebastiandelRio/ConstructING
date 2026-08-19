@@ -1,51 +1,52 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { MailerModule } from '@nestjs-modules/mailer'; // <-- Nueva importación
-import { AuthModule } from './auth/auth.module';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { UsersModule } from './users/users.module';
+import { WorksModule } from './works/works.module';
 import { UserEntity } from './auth/user.entity';
+import { WorkEntity } from './works/entities/work.entity';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get<string>('DB_HOST'),
-        port: configService.get<number>('DB_PORT'),
-        username: configService.get<string>('DB_USER'),
-        password: configService.get<string>('DB_PASSWORD'),
-        database: configService.get<string>('DB_NAME'),
-        entities: [UserEntity],
-        synchronize: true,
-        ssl: { rejectUnauthorized: false }
-      }),
-    }),
+      useFactory: (configService: ConfigService): any => {
+        const isTest = process.env.NODE_ENV === 'test';
 
-    // Configuración del servidor de correos
-    MailerModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        transport: {
-          host: configService.get<string>('SMTP_HOST'),
-          port: configService.get<number>('SMTP_PORT'),
-          secure: false, // Ethereal usa STARTTLS en el puerto 587
-          auth: {
-            user: configService.get<string>('SMTP_USER'),
-            pass: configService.get<string>('SMTP_PASS'),
-          },
-        },
-        defaults: {
-          from: '"Equipo ConstructING" <noreply@construct.ing>',
-        },
-      }),
+        if (isTest) {
+          // Configuración ultrarrápida y aislada en memoria para pruebas E2E (QA-03)
+          return {
+            type: 'better-sqlite3', // <- Usamos el driver oficial soportado por TypeORM 0.3.x
+            database: ':memory:',
+            entities: [UserEntity, WorkEntity],
+            synchronize: true,
+            dropSchema: true,
+          };
+        }
+
+        // Configuración oficial en PostgreSQL para Desarrollo y Producción (RNF-D-03)
+        return {
+          type: 'postgres',
+          host: configService.get<string>('DB_HOST', 'localhost'),
+          port: configService.get<number>('DB_PORT', 5432),
+          username: configService.get<string>('DB_USER', 'postgres'),
+          password: configService.get<string>('DB_PASSWORD', 'postgres'),
+          database: configService.get<string>('DB_NAME', 'constructingsal'),
+          entities: [UserEntity, WorkEntity],
+          synchronize: true,
+        };
+      },
     }),
-    
-    AuthModule,
+    UsersModule,
+    WorksModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}
