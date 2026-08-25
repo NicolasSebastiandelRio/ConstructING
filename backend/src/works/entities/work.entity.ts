@@ -31,6 +31,9 @@ export class WorkEntity {
   @Column({ type: 'date' })
   fechaInicio!: string;
 
+  @Column({ type: 'text', nullable: true })
+  descripcion?: string; // Opcional (permite valores nulos)
+
   @Column({ type: 'float', nullable: true })
   latitud?: number;
 
