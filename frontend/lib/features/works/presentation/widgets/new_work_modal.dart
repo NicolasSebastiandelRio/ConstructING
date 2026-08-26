@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:intl/intl.dart'; // Asegúrate de tener intl en pubspec.yaml
 import '../../../../core/theme/app_theme.dart';
 import '../blocs/works_bloc.dart';
 import '../blocs/works_event.dart';
@@ -16,19 +16,47 @@ class _NewWorkModalState extends State<NewWorkModal> {
   final _formKey = GlobalKey<FormState>();
   final _nombreController = TextEditingController();
   final _direccionController = TextEditingController();
-  final _descripcionController = TextEditingController(); // Opcional según UI
-  final _fechaInicioController = TextEditingController();
-
+  final _descripcionController = TextEditingController();
+  final _propietarioEmailController = TextEditingController();
+  
+  DateTime _selectedDate = DateTime.now();
   bool _isLoading = false;
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
   @override
   void dispose() {
     _nombreController.dispose();
     _direccionController.dispose();
     _descripcionController.dispose();
-    _fechaInicioController.dispose();
+    _propietarioEmailController.dispose();
     super.dispose();
+  }
+
+  /// UX: Selector de fecha nativo adaptado al formato argentino (DD/MM/YYYY)
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppTheme.accentGold,
+              onPrimary: Colors.black,
+              surface: AppTheme.darkSurface,
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
   }
 
   Future<void> _submitWork() async {
@@ -37,21 +65,17 @@ class _NewWorkModalState extends State<NewWorkModal> {
     setState(() => _isLoading = true);
 
     try {
-      // Recuperamos el ID del usuario autenticado actual desde el almacenamiento seguro (CU-05)
-      // O asignamos un propietario por defecto para pruebas del MVP
-      final propietarioId = await _secureStorage.read(key: 'user_id') ?? 'd3b07384-d113-4ec6-a563-95d80d07e60d';
+      // Formato para base de datos (YYYY-MM-DD) requerido por NestJS/PostgreSQL
+      final String formattedDateForApi = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
       final workData = {
         'nombre': _nombreController.text.trim(),
         'direccion': _direccionController.text.trim(),
         if (_descripcionController.text.isNotEmpty) 'descripcion': _descripcionController.text.trim(),
-        'fechaInicio': _fechaInicioController.text.trim().isEmpty 
-            ? DateTime.now().toIso8601String().split('T')[0] 
-            : _fechaInicioController.text.trim(),
-        'propietarioId': propietarioId,
+        'fechaInicio': formattedDateForApi,
+        'propietarioEmail': _propietarioEmailController.text.trim().toLowerCase(),
       };
 
-      // Despachamos el evento de creación al BLoC (CU-13)
       if (!mounted) return;
       context.read<WorksBloc>().add(CreateWorkEvent(workData: workData));
 
@@ -78,6 +102,9 @@ class _NewWorkModalState extends State<NewWorkModal> {
 
   @override
   Widget build(BuildContext context) {
+    // Formato visual para el usuario (DD/MM/YYYY - Estándar Argentino)
+    final String displayDate = DateFormat('dd/MM/yyyy').format(_selectedDate);
+
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -126,6 +153,24 @@ class _NewWorkModalState extends State<NewWorkModal> {
               ),
               const SizedBox(height: 14),
 
+              // Campo obligatorio exigido por CU-14 (Vincular Propietario por Correo)
+              TextFormField(
+                controller: _propietarioEmailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Correo Electrónico del Propietario',
+                  hintText: 'propietario@ejemplo.com',
+                  prefixIcon: Icon(Icons.person_outline, color: AppTheme.accentGold),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty || !value.contains('@')) {
+                    return 'Ingrese un correo de propietario válido';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 14),
+
               TextFormField(
                 controller: _descripcionController,
                 maxLines: 2,
@@ -137,12 +182,24 @@ class _NewWorkModalState extends State<NewWorkModal> {
               ),
               const SizedBox(height: 14),
 
-              TextFormField(
-                controller: _fechaInicioController,
-                decoration: const InputDecoration(
-                  labelText: 'Fecha de Inicio (YYYY-MM-DD)',
-                  hintText: '2026-03-01',
-                  prefixIcon: Icon(Icons.calendar_today_outlined, color: AppTheme.accentGold),
+              // UX Mejorada: Selector de Fecha táctil (Evita tipeo manual de guiones)
+              InkWell(
+                onTap: () => _selectDate(context),
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Fecha de Inicio',
+                    prefixIcon: Icon(Icons.calendar_today_outlined, color: AppTheme.accentGold),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        displayDate,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                      const Icon(Icons.arrow_drop_down, color: AppTheme.accentGold),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 24),

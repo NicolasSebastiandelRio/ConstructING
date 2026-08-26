@@ -6,6 +6,7 @@ import '../blocs/works_bloc.dart';
 import '../blocs/works_event.dart';
 import '../blocs/works_state.dart';
 import '../widgets/new_work_modal.dart';
+import 'work_detail_screen.dart'; // <--- EL IMPORT QUE FALTABA
 
 class WorksDashboardScreen extends StatefulWidget {
   final String userRole; // 'Propietario' o 'Profesional'
@@ -105,79 +106,94 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
   }
 
   Widget _buildWorkCard(BuildContext context, WorkEntity work) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: AppTheme.darkSurface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.accentGold.withOpacity(0.3)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.between,
-              children: [
-                Expanded(
-                  child: Text(
-                    work.nombre,
-                    style: const TextStyle(
-                      color: AppTheme.accentGold,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'Cinzel',
+    return InkWell(
+        onTap: () {
+        // Navegación hacia la Ficha Técnica de la Obra (CU-19 / Mockup 7)
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => WorkDetailScreen(
+              work: work,
+              userRole: widget.userRole, 
+            ),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: AppTheme.darkSurface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.accentGold.withOpacity(0.3)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      work.nombre,
+                      style: const TextStyle(
+                        color: AppTheme.accentGold,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cinzel',
+                      ),
                     ),
                   ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: work.estado == 'Finalizado' ? Colors.green.shade800 : AppTheme.lightBlue.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    work.estado,
-                    style: TextStyle(
-                      color: work.estado == 'Finalizado' ? Colors.white : AppTheme.lightBlue,
-                      fontSize: 11,
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: work.estado == 'Finalizado' ? Colors.green.shade800 : AppTheme.lightBlue.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      work.estado,
+                      style: TextStyle(
+                        color: work.estado == 'Finalizado' ? Colors.white : AppTheme.lightBlue,
+                        fontSize: 11,
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                const Icon(Icons.location_on_outlined, size: 14, color: Colors.white70),
-                const SizedBox(width: 4),
-                Text(work.direccion, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text('Inicio: ${work.fechaInicio}', style: const TextStyle(color: Colors.white54, fontSize: 11)),
-            const SizedBox(height: 12),
-            // Barra de Progreso porcentual (Mockup 5)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
-                  children: [
-                    const Text('Progreso', style: TextStyle(color: Colors.white60, fontSize: 11)),
-                    Text('${(work.progreso * 100).toInt()}%', style: const TextStyle(color: AppTheme.accentGold, fontSize: 11, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                LinearProgressIndicator(
-                  value: work.progreso,
-                  backgroundColor: Colors.white12,
-                  valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.accentGold),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.location_on_outlined, size: 14, color: Colors.white70),
+                  const SizedBox(width: 4),
+                  Text(work.direccion, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text('Inicio: ${work.fechaInicio}', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+              const SizedBox(height: 12),
+              // Barra de Progreso porcentual (Mockup 5)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Progreso', style: TextStyle(color: Colors.white60, fontSize: 11)),
+                      Text('${(work.progreso * 100).toInt()}%', style: const TextStyle(color: AppTheme.accentGold, fontSize: 11, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  LinearProgressIndicator(
+                    value: work.progreso,
+                    backgroundColor: Colors.white12,
+                    valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.accentGold),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

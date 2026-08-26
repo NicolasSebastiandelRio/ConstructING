@@ -7,7 +7,6 @@ class WorksBloc extends Bloc<WorksEvent, WorksState> {
   final WorksRemoteDataSource worksRemoteDataSource;
 
   WorksBloc({required this.worksRemoteDataSource}) : super(WorksInitial()) {
-    // CU-18: Consultar Obras Asignadas
     on<FetchWorksEvent>((event, emit) async {
       emit(WorksLoading());
       try {
@@ -18,12 +17,10 @@ class WorksBloc extends Bloc<WorksEvent, WorksState> {
       }
     });
 
-    // CU-13: Crear Nueva Obra y refrescar vista
     on<CreateWorkEvent>((event, emit) async {
-      emit(WorksLoading());
       try {
         await worksRemoteDataSource.createWork(event.workData);
-        // Recargamos el listado completo desde la API para mantener sincronizada la UI
+        // Volvemos a consultar el listado actualizado tras crear la obra (CU-18)
         final works = await worksRemoteDataSource.getWorks();
         emit(WorksLoaded(works: works));
       } catch (e) {

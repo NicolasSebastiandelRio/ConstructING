@@ -15,39 +15,45 @@ export class WorksService {
     private readonly userRepository: Repository<UserEntity>,
   ) {}
 
-  /**
-   * CU-13 y CU-16: Crear Nueva Obra con validación de propietario (CU-14 / RNF-D-03)
-   */
+  // CORRECIÓN: Retorna un único objeto WorkEntity (Creación)
   async create(createWorkDto: CreateWorkDto): Promise<WorkEntity> {
-    const { propietarioId, ...workData } = createWorkDto;
+    const { propietarioEmail, propietarioId, ...workData } = createWorkDto as any;
 
-    // Verificar existencia del propietario (Integridad referencial RNF-D-03)
-    const propietario = await this.userRepository.findOne({ where: { id: propietarioId } });
-    if (!propietario) {
-      throw new BadRequestException(`El propietario con ID ${propietarioId} no existe en el sistema.`);
+    let propietario;
+    if (propietarioEmail) {
+      propietario = await this.userRepository.findOne({ where: { email: propietarioEmail } });
+    } else if (propietarioId) {
+      propietario = await this.userRepository.findOne({ where: { id: propietarioId } });
     }
 
+    if (!propietario) {
+      throw new BadRequestException(
+        `El propietario con identificador '${propietarioEmail ?? propietarioId}' no existe en el sistema.`
+      );
+    }
+
+    // 1. Creamos la instancia tipada de la obra
     const nuevaObra = this.workRepository.create({
       ...workData,
-      propietarioId,
+      propietarioId: propietario.id,
     });
 
-    return await this.workRepository.save(nuevaObra);
+    // 2. Guardamos y manejamos la sobrecarga de TypeORM de forma segura
+    const savedResult = await this.workRepository.save(nuevaObra);
+
+    // Si TypeORM retorna un array por inferencia, devolvemos el primer elemento; caso contrario, el objeto
+    return Array.isArray(savedResult) ? savedResult[0] : savedResult;
   }
 
-  /**
-   * CU-18: Consultar Obras Asignadas
-   */
+  // CORRECIÓN CLAVE: Retorna una LISTA de entidades WorkEntity[] (CU-18)
   async findAll(): Promise<WorkEntity[]> {
     return await this.workRepository.find({
       relations: { propietario: true },
-      withDeleted: false, // Excluye las archivadas (Soft-Delete RNF-S-03)
+      withDeleted: false,
     });
   }
 
-  /**
-   * CU-19: Visualizar Ficha Técnica de Obra por ID
-   */
+  // CORRECIÓN: Retorna un único objeto WorkEntity o lanza excepción (CU-19)
   async findOne(id: string): Promise<WorkEntity> {
     const obra = await this.workRepository.findOne({
       where: { id },
@@ -61,39 +67,25 @@ export class WorksService {
     return obra;
   }
 
-  /**
-   * CU-17: Modificar Información de Obra
-   */
+  // CORRECIÓN: Retorna un único objeto WorkEntity actualizado (CU-17)
   async update(id: string, updateWorkDto: UpdateWorkDto): Promise<WorkEntity> {
     const obra = await this.findOne(id);
-
-    if (updateWorkDto.propietarioId) {
-      const propietario = await this.userRepository.findOne({ where: { id: updateWorkDto.propietarioId } });
-      if (!propietario) {
-        throw new BadRequestException(`El propietario con ID ${updateWorkDto.propietarioId} no existe.`);
-      }
-    }
-
     Object.assign(obra, updateWorkDto);
     return await this.workRepository.save(obra);
   }
 
-  /**
-   * CU-20: Actualizar Estado del Proyecto
-   */
+  // CORRECIÓN: Retorna un único objeto WorkEntity con estado modificado (CU-20)
   async updateStatus(id: string, estado: WorkStatus): Promise<WorkEntity> {
     const obra = await this.findOne(id);
     obra.estado = estado;
     return await this.workRepository.save(obra);
   }
 
-  /**
-   * CU-21: Archivar Obra (Soft-Delete / Control lógico RNF-S-03)
-   */
+  // Borrado lógico (CU-21 / RNF-S-03)
   async archive(id: string): Promise<void> {
     const obra = await this.findOne(id);
     obra.estado = WorkStatus.ARCHIVED;
     await this.workRepository.save(obra);
-    await this.workRepository.softDelete(id); 
+    await this.workRepository.softDelete(id);
   }
 }

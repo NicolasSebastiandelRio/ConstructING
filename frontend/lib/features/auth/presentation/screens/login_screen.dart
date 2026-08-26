@@ -5,6 +5,7 @@ import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
 import 'register_screen.dart';
+import '../../../works/presentation/screens/works_dashboard_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final String initialRole;
@@ -61,32 +62,22 @@ class _LoginScreenState extends State<LoginScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        'Bienvenido, ${state.user.nombre}',
+                        '¡Bienvenido, ${state.user.nombre}!',
                         style: const TextStyle(fontFamily: 'Cinzel'),
                       ),
                       backgroundColor: Colors.green.shade800,
                     ),
                   );
-                  // Navegación basada en Roles (RBAC - CU-01 / RNF_S_02)
-                  final rol = state.user.rol.toLowerCase();
-                  
-                  if (rol.contains('profesional')) {
-                    // Redirigir al Dashboard del Profesional (Mockup 11)
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => PlaceholderDashboard(roleTitle: 'Panel Profesional'),
+
+                  // Navegación real hacia el Dashboard de Obras (Mockup 5 / 11) según RBAC
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => WorksDashboardScreen(
+                        userRole: state.user.rol,
                       ),
-                    );
-                  } else {
-                    // Redirigir al Dashboard del Propietario (Mockup 5)
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => PlaceholderDashboard(roleTitle: 'Panel Propietario'),
-                      ),
-                    );
-                  }
+                    ),
+                  );
                 }
               },
               builder: (context, state) {
@@ -211,54 +202,6 @@ class _LoginScreenState extends State<LoginScreen> {
               },
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Pantalla temporal de transición para validar el RBAC en el Sprint 2
-class PlaceholderDashboard extends StatelessWidget {
-  final String roleTitle;
-
-  const PlaceholderDashboard({super.key, required this.roleTitle});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(roleTitle, style: const TextStyle(fontFamily: 'Cinzel', color: Colors.amber)),
-        backgroundColor: Colors.black87,
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.construction, size: 80, color: Colors.amber),
-            const SizedBox(height: 16),
-            Text(
-              'Bienvenido al $roleTitle',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Módulo operativo integrado exitosamente.',
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                // Simulación de cierre de sesión (CU-04)
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const LoginScreen(initialRole: 'Propietario'),
-                  ),
-                );
-              },
-              child: const Text('Cerrar Sesión'),
-            ),
-          ],
         ),
       ),
     );

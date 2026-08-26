@@ -7,21 +7,37 @@ import 'features/auth/data/datasources/auth_remote_data_source.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/screens/welcome_screen.dart';
 
+// Importaciones del Módulo de Obras (PT-03)
+import 'features/works/data/datasources/works_remote_data_source.dart';
+import 'features/works/presentation/blocs/works_bloc.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Instanciación de dependencias core
+  // 1. Instanciación de dependencias core y servicios de red
   const secureStorage = FlutterSecureStorage();
   final dioClient = DioClient();
-  final authRemoteDataSource = AuthRemoteDataSourceImpl(dioClient: dioClient);
 
+  // 2. Instanciación de Data Sources (Capa de Datos)
+  final authRemoteDataSource = AuthRemoteDataSourceImpl(dioClient: dioClient);
+  final worksRemoteDataSource = WorksRemoteDataSourceImpl(
+    dioClient: dioClient,
+    secureStorage: secureStorage,
+  );
   runApp(
     MultiBlocProvider(
       providers: [
+        // Proveedor global para el flujo de Autenticación (PT-02)
         BlocProvider<AuthBloc>(
           create: (context) => AuthBloc(
             authRemoteDataSource: authRemoteDataSource,
             secureStorage: secureStorage,
+          ),
+        ),
+        // Proveedor global para el flujo de Obras y Proyectos (PT-03)
+        BlocProvider<WorksBloc>(
+          create: (context) => WorksBloc(
+            worksRemoteDataSource: worksRemoteDataSource,
           ),
         ),
       ],
