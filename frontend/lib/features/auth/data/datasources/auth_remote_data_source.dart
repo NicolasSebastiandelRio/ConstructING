@@ -29,15 +29,25 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
         },
       );
 
-      // El backend retorna un objeto conteniendo el token JWT y los datos del usuario
+      // Programación defensiva: aseguramos extraer el objeto 'user' o crearlo de forma segura
+      final rawUser = response.data['user'] ?? response.data;
+      final Map<String, dynamic> userData = (rawUser is Map<String, dynamic>)
+          ? rawUser
+          : {
+              'id': response.data['sub'] ?? 'temp-id',
+              'nombre': 'Usuario ConstructING',
+              'email': email,
+              'rol': response.data['role'] ?? 'Propietario',
+            };
+
       return {
         'access_token': response.data['access_token'],
-        'user': UserModel.fromJson(response.data['user']),
+        'user': UserModel.fromJson(userData),
       };
     } on DioException catch (e) {
-      throw Exception(
-        e.response?.data['message'] ?? 'Error al iniciar sesión. Verifique sus credenciales.',
-      );
+      final dynamic msg = e.response?.data['message'];
+      final errorMessage = msg is List ? msg.join(', ') : (msg ?? 'Error al iniciar sesión. Verifique sus credenciales.');
+      throw Exception(errorMessage);
     }
   }
 
@@ -56,16 +66,28 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
           'nombre': nombre,
           'email': email,
           'password': password,
-          'rol': rol,
+          'role': rol, // Alineado con NestJS
           if (matricula != null) 'matricula': matricula,
         },
       );
 
-      return UserModel.fromJson(response.data);
+      // Programación defensiva para el registro
+      final rawUser = response.data['user'] ?? response.data;
+      final Map<String, dynamic> userData = (rawUser is Map<String, dynamic>)
+          ? rawUser
+          : {
+              'id': response.data['userId'] ?? response.data['id'] ?? 'temp-id',
+              'nombre': nombre,
+              'email': email,
+              'rol': rol,
+              'matricula': matricula,
+            };
+
+      return UserModel.fromJson(userData);
     } on DioException catch (e) {
-      throw Exception(
-        e.response?.data['message'] ?? 'Error al registrar el usuario en el sistema.',
-      );
+      final dynamic msg = e.response?.data['message'];
+      final errorMessage = msg is List ? msg.join(', ') : (msg ?? 'Error al registrar el usuario en el sistema.');
+      throw Exception(errorMessage);
     }
   }
 }

@@ -67,7 +67,26 @@ class _LoginScreenState extends State<LoginScreen> {
                       backgroundColor: Colors.green.shade800,
                     ),
                   );
-                  // En el Sprint 2 agregaremos la navegación hacia el Dashboard correspondiente
+                  // Navegación basada en Roles (RBAC - CU-01 / RNF_S_02)
+                  final rol = state.user.rol.toLowerCase();
+                  
+                  if (rol.contains('profesional')) {
+                    // Redirigir al Dashboard del Profesional (Mockup 11)
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => PlaceholderDashboard(roleTitle: 'Panel Profesional'),
+                      ),
+                    );
+                  } else {
+                    // Redirigir al Dashboard del Propietario (Mockup 5)
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => PlaceholderDashboard(roleTitle: 'Panel Propietario'),
+                      ),
+                    );
+                  }
                 }
               },
               builder: (context, state) {
@@ -192,6 +211,54 @@ class _LoginScreenState extends State<LoginScreen> {
               },
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Pantalla temporal de transición para validar el RBAC en el Sprint 2
+class PlaceholderDashboard extends StatelessWidget {
+  final String roleTitle;
+
+  const PlaceholderDashboard({super.key, required this.roleTitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(roleTitle, style: const TextStyle(fontFamily: 'Cinzel', color: Colors.amber)),
+        backgroundColor: Colors.black87,
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.construction, size: 80, color: Colors.amber),
+            const SizedBox(height: 16),
+            Text(
+              'Bienvenido al $roleTitle',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Módulo operativo integrado exitosamente.',
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () {
+                // Simulación de cierre de sesión (CU-04)
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const LoginScreen(initialRole: 'Propietario'),
+                  ),
+                );
+              },
+              child: const Text('Cerrar Sesión'),
+            ),
+          ],
         ),
       ),
     );

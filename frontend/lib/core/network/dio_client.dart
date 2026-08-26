@@ -5,8 +5,7 @@ class DioClient {
   late final Dio _dio;
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
-  // URL base de tu backend (Ajustar según entorno: Localhost / Emulador Android / Producción Supabase)
-  static const String baseUrl = 'http://10.0.2.2:3000'; // 10.0.2.2 para emulador Android local
+  static const String baseUrl = 'http://localhost:3000';
 
   DioClient() {
     _dio = Dio(

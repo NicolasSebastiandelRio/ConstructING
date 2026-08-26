@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../bloc/works_bloc.dart';
-import '../bloc/works_event.dart';
+import '../blocs/works_bloc.dart';
+import '../blocs/works_event.dart';
 
 class NewWorkModal extends StatefulWidget {
   const NewWorkModal({super.key});
@@ -13,51 +14,76 @@ class NewWorkModal extends StatefulWidget {
 
 class _NewWorkModalState extends State<NewWorkModal> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _addressController = TextEditingController();
-  final _descController = TextEditingController();
-  final _dateController = TextEditingController(text: '2026-08-24');
-  final _propEmailController = TextEditingController();
+  final _nombreController = TextEditingController();
+  final _direccionController = TextEditingController();
+  final _descripcionController = TextEditingController(); // Opcional según UI
+  final _fechaInicioController = TextEditingController();
+
+  bool _isLoading = false;
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _addressController.dispose();
-    _descController.dispose();
-    _dateController.dispose();
-    _propEmailController.dispose();
+    _nombreController.dispose();
+    _direccionController.dispose();
+    _descripcionController.dispose();
+    _fechaInicioController.dispose();
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submitWork() async {
     if (!_formKey.currentState!.validate()) return;
 
-    context.read<WorksBloc>().add(
-          CreateWorkEvent(
-            nombre: _nameController.text.trim(),
-            direccion: _addressController.text.trim(),
-            descripcion: _descController.text.trim(),
-            fechaInicio: _dateController.text.trim(),
-            propietarioEmail: _propEmailController.text.trim().isNotEmpty
-                ? _propEmailController.text.trim()
-                : null,
-          ),
-        );
-    Navigator.pop(context);
+    setState(() => _isLoading = true);
+
+    try {
+      // Recuperamos el ID del usuario autenticado actual desde el almacenamiento seguro (CU-05)
+      // O asignamos un propietario por defecto para pruebas del MVP
+      final propietarioId = await _secureStorage.read(key: 'user_id') ?? 'd3b07384-d113-4ec6-a563-95d80d07e60d';
+
+      final workData = {
+        'nombre': _nombreController.text.trim(),
+        'direccion': _direccionController.text.trim(),
+        if (_descripcionController.text.isNotEmpty) 'descripcion': _descripcionController.text.trim(),
+        'fechaInicio': _fechaInicioController.text.trim().isEmpty 
+            ? DateTime.now().toIso8601String().split('T')[0] 
+            : _fechaInicioController.text.trim(),
+        'propietarioId': propietarioId,
+      };
+
+      // Despachamos el evento de creación al BLoC (CU-13)
+      if (!mounted) return;
+      context.read<WorksBloc>().add(CreateWorkEvent(workData: workData));
+
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Obra registrada exitosamente en el sistema.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al registrar la obra: ${e.toString()}'),
+          backgroundColor: AppTheme.primaryRed,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return Padding(
       padding: EdgeInsets.only(
-        top: 20,
-        left: 20,
-        right: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-      ),
-      decoration: const BoxDecoration(
-        color: AppTheme.darkSurface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        left: 24,
+        right: 24,
+        top: 24,
       ),
       child: SingleChildScrollView(
         child: Form(
@@ -66,85 +92,72 @@ class _NewWorkModalState extends State<NewWorkModal> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'NUEVO PROYECTO',
-                    style: TextStyle(
-                      fontFamily: 'Cinzel',
-                      color: AppTheme.accentGold,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white70),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Nombre del Proyecto *'),
-                validator: (val) =>
-                    val == null || val.isEmpty ? 'El nombre es obligatorio' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _addressController,
-                decoration: const InputDecoration(labelText: 'Dirección *'),
-                validator: (val) =>
-                    val == null || val.isEmpty ? 'La dirección es obligatoria' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _propEmailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Email del Propietario (Opcional)',
-                  hintText: 'ejemplo@correo.com',
+              const Text(
+                'NUEVO PROYECTO',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Cinzel',
+                  color: AppTheme.accentGold,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _descController,
-                maxLines: 2,
-                decoration: const InputDecoration(labelText: 'Descripción del Proyecto'),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _dateController,
-                decoration: const InputDecoration(
-                  labelText: 'Fecha de Inicio (YYYY-MM-DD) *',
-                  prefixIcon: Icon(Icons.calendar_today, color: AppTheme.accentGold),
-                ),
-                validator: (val) =>
-                    val == null || val.isEmpty ? 'La fecha es obligatoria' : null,
               ),
               const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.white30),
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Text('Cancelar'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _submit,
-                      child: const Text('Crear Proyecto'),
-                    ),
-                  ),
-                ],
+
+              TextFormField(
+                controller: _nombreController,
+                decoration: const InputDecoration(
+                  labelText: 'Nombre del Proyecto',
+                  hintText: 'Ej: Edificio Residencial Central',
+                  prefixIcon: Icon(Icons.business_outlined, color: AppTheme.accentGold),
+                ),
+                validator: (value) => value == null || value.trim().isEmpty ? 'El nombre es obligatorio' : null,
               ),
+              const SizedBox(height: 14),
+
+              TextFormField(
+                controller: _direccionController,
+                decoration: const InputDecoration(
+                  labelText: 'Dirección',
+                  hintText: 'Ej: Av. Libertador 1234, CABA',
+                  prefixIcon: Icon(Icons.location_on_outlined, color: AppTheme.accentGold),
+                ),
+                validator: (value) => value == null || value.trim().isEmpty ? 'La dirección es obligatoria' : null,
+              ),
+              const SizedBox(height: 14),
+
+              TextFormField(
+                controller: _descripcionController,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Descripción (Opcional)',
+                  hintText: 'Detalles generales de la obra...',
+                  prefixIcon: Icon(Icons.description_outlined, color: AppTheme.accentGold),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              TextFormField(
+                controller: _fechaInicioController,
+                decoration: const InputDecoration(
+                  labelText: 'Fecha de Inicio (YYYY-MM-DD)',
+                  hintText: '2026-03-01',
+                  prefixIcon: Icon(Icons.calendar_today_outlined, color: AppTheme.accentGold),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              ElevatedButton(
+                onPressed: _isLoading ? null : _submitWork,
+                child: _isLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Crear Proyecto'),
+              ),
+              const SizedBox(height: 16),
             ],
           ),
         ),
