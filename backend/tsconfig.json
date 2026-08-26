@@ -16,7 +16,11 @@
     "emitDecoratorMetadata": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "types": ["node", "jest", "supertest"],
-    "ignoreDeprecations": "6.0"
+    "types": [
+      "node",
+      "jest",
+      "supertest"
+    ],
+    "ignoreDeprecations": "5.0"
   }
 }

@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { WorksModule } from './works/works.module';
+import { AuthModule } from './auth/auth.module'; // <- Importar AuthModule  
 import { UserEntity } from './auth/user.entity';
 import { WorkEntity } from './works/entities/work.entity';
 
@@ -45,6 +46,7 @@ import { WorkEntity } from './works/entities/work.entity';
     }),
     UsersModule,
     WorksModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
