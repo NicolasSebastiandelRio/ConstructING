@@ -5,6 +5,7 @@ import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
 import 'register_screen.dart';
+import 'forgot_password_screen.dart'; // <--- Importación de la pantalla de recuperación (CU-03)
 import '../../../works/presentation/screens/works_dashboard_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -31,7 +32,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _handleLogin() {
     if (!_formKey.currentState!.validate()) return;
 
-    // Despacha el evento de login hacia el AuthBloc (CU-01)
+    // Despacha el evento de login hacia el AuthBloc (CU-01)[cite: 3]
     context.read<AuthBloc>().add(
           LoginButtonPressed(
             email: _emailController.text.trim(),
@@ -69,7 +70,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   );
 
-                  // Navegación real hacia el Dashboard de Obras (Mockup 5 / 11) según RBAC
+                  // Navegación real hacia el Dashboard de Obras (Mockup 5 / 11) según RBAC[cite: 4, 7]
                   Navigator.pushReplacement(
                     context,
                     MaterialPageRoute(
@@ -177,7 +178,28 @@ class _LoginScreenState extends State<LoginScreen> {
                               )
                             : const Text('Iniciar Sesión'),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
+
+                      // Botón para invocar el flujo de Recuperación de Contraseña (CU-03)[cite: 3]
+                      TextButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const ForgotPasswordScreen(),
+                            ),
+                          );
+                        },
+                        child: const Text(
+                          '¿Olvidaste tu contraseña?',
+                          style: TextStyle(
+                            fontFamily: 'Cinzel',
+                            color: AppTheme.accentGold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
 
                       TextButton(
                         onPressed: () {
