@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
+import '../../../auth/presentation/bloc/auth_event.dart';
+import '../../../auth/presentation/bloc/auth_state.dart';
+import '../../../auth/presentation/screens/welcome_screen.dart';
 import '../../domain/entities/work_entity.dart';
 import '../blocs/works_bloc.dart';
 import '../blocs/works_event.dart';
@@ -29,28 +33,55 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          _isProfesional ? 'GESTIÓN DE OBRAS' : 'MIS PROYECTOS',
-          style: const TextStyle(fontFamily: 'Cinzel', color: AppTheme.accentGold, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: AppTheme.darkSurface,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined, color: AppTheme.accentGold),
-            onPressed: () {
-              // Navegación a Notificaciones (Mockup 6)
-            },
+    return BlocListener<AuthBloc, AuthState>(
+      listener: (context, state) {
+        if (state is AuthInitial) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+            (route) => false,
+          );
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(
+            _isProfesional ? 'GESTIÓN DE OBRAS' : 'MIS PROYECTOS',
+            style: const TextStyle(fontFamily: 'Cinzel', color: AppTheme.accentGold, fontWeight: FontWeight.bold),
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          backgroundColor: AppTheme.darkSurface,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.notifications_outlined, color: AppTheme.accentGold),
+              onPressed: () {
+                // Navegación a Notificaciones (Mockup 6)
+              },
+            ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.account_circle_outlined, color: AppTheme.accentGold),
+              color: AppTheme.darkSurface,
+              onSelected: (value) {
+                if (value == 'logout') {
+                  _confirmLogout(context);
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem<String>(
+                  value: 'logout',
+                  child: ListTile(
+                    leading: Icon(Icons.logout, color: AppTheme.primaryRed),
+                    title: Text('Cerrar Sesión', style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               Text(
                 _isProfesional ? 'Propiedades en desarrollo activo' : 'Seguimiento de tus construcciones',
                 style: const TextStyle(color: Colors.white70, fontSize: 13, fontFamily: 'Cinzel'),
@@ -90,19 +121,44 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
                   },
                 ),
               ),
-            ],
+              ],
+            ),
           ),
         ),
+        // Solo el rol Profesional tiene habilitado el alta de nuevos proyectos (Mockup 11 / CU-13)
+        floatingActionButton: _isProfesional
+            ? FloatingActionButton(
+                backgroundColor: AppTheme.accentGold,
+                child: const Icon(Icons.add, color: Colors.black),
+                onPressed: () => _showNewWorkModal(context),
+              )
+            : null,
       ),
-      // Solo el rol Profesional tiene habilitado el alta de nuevos proyectos (Mockup 11 / CU-13)
-      floatingActionButton: _isProfesional
-          ? FloatingActionButton(
-              backgroundColor: AppTheme.accentGold,
-              child: const Icon(Icons.add, color: Colors.black),
-              onPressed: () => _showNewWorkModal(context),
-            )
-          : null,
     );
+  }
+
+  Future<void> _confirmLogout(BuildContext context) async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cerrar Sesión'),
+        content: const Text('¿Desea finalizar la sesión actual?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Cerrar Sesión'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout == true && context.mounted) {
+      context.read<AuthBloc>().add(LogoutRequested());
+    }
   }
 
   Widget _buildWorkCard(BuildContext context, WorkEntity work) {
@@ -125,7 +181,7 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
         decoration: BoxDecoration(
           color: AppTheme.darkSurface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.accentGold.withOpacity(0.3)),
+                      border: Border.all(color: AppTheme.accentGold.withValues(alpha: 0.3)),
         ),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -149,7 +205,7 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: work.estado == 'Finalizado' ? Colors.green.shade800 : AppTheme.lightBlue.withOpacity(0.2),
+                      color: work.estado == 'Finalizado' ? Colors.green.shade800 : AppTheme.lightBlue.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(

@@ -79,6 +79,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   );
+                } else if (state is AuthError) {
+                  _passwordController.clear();
                 }
               },
               builder: (context, state) {
@@ -157,8 +159,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           prefixIcon: Icon(Icons.lock_outline, color: AppTheme.accentGold),
                         ),
                         validator: (value) {
-                          if (value == null || value.length < 6) {
-                            return 'La contraseña debe tener al menos 6 caracteres';
+                          if (value == null || value.isEmpty) {
+                            return 'Ingrese su contraseña';
                           }
                           return null;
                         },

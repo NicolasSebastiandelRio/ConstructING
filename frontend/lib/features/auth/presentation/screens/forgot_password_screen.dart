@@ -159,7 +159,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       hintText: '123456',
                       prefixIcon: Icon(Icons.lock_clock_outlined, color: AppTheme.accentGold),
                     ),
-                    validator: (value) => value == null || value.length < 6 ? 'Ingrese el código completo' : null,
+                    validator: (value) => value == null || !RegExp(r'^\d{6}4').hasMatch(value.trim())
+                      ? 'Ingrese el código completo'
+                      : null,
                   ),
                   const SizedBox(height: 16),
                   TextFormField(

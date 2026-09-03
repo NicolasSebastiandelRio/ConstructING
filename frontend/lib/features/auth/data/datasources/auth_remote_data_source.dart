@@ -3,7 +3,7 @@ import '../../../../core/network/dio_client.dart';
 import '../models/user_model.dart';
 
 abstract class AuthRemoteDataSource {
-  Future<Map<String, dynamic>> login(String email, String password);
+  Future<Map<String, dynamic>> login(String email, String password, String role);
   Future<UserModel> register({
     required String nombre,
     required String email,
@@ -19,15 +19,23 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   AuthRemoteDataSourceImpl({required DioClient dioClient}) : _dioClient = dioClient;
 
   @override
-  Future<Map<String, dynamic>> login(String email, String password) async {
+  Future<Map<String, dynamic>> login(String email, String password, String role) async {
     try {
       final response = await _dioClient.dio.post(
         '/auth/login',
         data: {
           'email': email,
           'password': password,
+          'role': role,
         },
       );
+
+      if (response.data is! Map<String, dynamic> ||
+          response.data['access_token'] is! String ||
+          response.data['access_token'].isEmpty ||
+          response.data['user'] is! Map<String, dynamic>) {
+        throw Exception('Respuesta inválida del servidor de autenticación.');
+      }
 
       // Programación defensiva: aseguramos extraer el objeto 'user' o crearlo de forma segura
       final rawUser = response.data['user'] ?? response.data;

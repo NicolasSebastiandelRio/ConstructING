@@ -5,11 +5,13 @@ import 'core/network/dio_client.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/data/datasources/auth_remote_data_source.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
+import 'features/auth/presentation/bloc/auth_state.dart';
 import 'features/auth/presentation/screens/welcome_screen.dart';
 
 // Importaciones del Módulo de Obras (PT-03)
 import 'features/works/data/datasources/works_remote_data_source.dart';
 import 'features/works/presentation/blocs/works_bloc.dart';
+import 'features/works/presentation/screens/works_dashboard_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,7 +57,28 @@ class ConstructINGApp extends StatelessWidget {
       title: 'ConstructING',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const WelcomeScreen(),
+      home: const AuthRootScreen(),
+    );
+  }
+}
+
+class AuthRootScreen extends StatelessWidget {
+  const AuthRootScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<AuthBloc, AuthState>(
+      builder: (context, state) {
+        if (state is AuthSessionChecking) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (state is AuthAuthenticated) {
+          return WorksDashboardScreen(userRole: state.user.rol);
+        }
+        return const WelcomeScreen();
+      },
     );
   }
 }
