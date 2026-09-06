@@ -4,6 +4,7 @@ class UserEntity {
   final String email;
   final String rol; // 'Profesional', 'Propietario', 'Administrador'
   final String? matricula;
+  final DateTime? deletedAt;
 
   const UserEntity({
     required this.id,
@@ -11,5 +12,6 @@ class UserEntity {
     required this.email,
     required this.rol,
     this.matricula,
+    this.deletedAt,
   });
 }

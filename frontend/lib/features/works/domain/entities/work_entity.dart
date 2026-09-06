@@ -5,13 +5,16 @@ class WorkEntity extends Equatable {
   final String nombre;
   final String direccion;
   final String? descripcion;
-  final double latitud;
-  final double longitud;
+  final double? latitud;
+  final double? longitud;
   final String fechaInicio;
   final String estado;
   final double progreso;
   final String profesionalId;
   final String? propietarioId;
+  // CU-19: datos maestros del propietario vinculado (relación expandida).
+  final String? propietarioNombre;
+  final String? propietarioEmail;
 
   const WorkEntity({
     required this.id,
@@ -25,6 +28,8 @@ class WorkEntity extends Equatable {
     required this.progreso,
     required this.profesionalId,
     this.propietarioId,
+    this.propietarioNombre,
+    this.propietarioEmail,
   });
 
   @override
@@ -40,5 +45,7 @@ class WorkEntity extends Equatable {
         progreso,
         profesionalId,
         propietarioId,
+        propietarioNombre,
+        propietarioEmail,
       ];
 }

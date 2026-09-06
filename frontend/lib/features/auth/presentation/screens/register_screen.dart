@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/datasources/auth_remote_data_source.dart';
 import '../../../../core/network/dio_client.dart';
+import '../validators/password_policy.dart';
 import 'login_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -21,6 +22,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _matriculaController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _invitationCodeController = TextEditingController();
 
   String _docType = 'DNI';
   bool _isLoading = false;
@@ -36,6 +38,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _matriculaController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _invitationCodeController.dispose();
     super.dispose();
   }
 
@@ -55,6 +58,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: _passwordController.text.trim(),
         rol: widget.initialRole,
         matricula: _isProfesional ? _matriculaController.text.trim() : null,
+        // CU-22: reclamo opcional de la invitación (une al nuevo usuario a su obra).
+        invitationCode: _invitationCodeController.text.trim().isEmpty
+            ? null
+            : _invitationCodeController.text.trim(),
       );
 
       if (!mounted) return;
@@ -225,8 +232,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       labelText: 'Contraseña',
                       prefixIcon: Icon(Icons.lock_outline, color: AppTheme.accentGold),
                     ),
-                    validator: (value) =>
-                        value == null || value.length < 6 ? 'Mínimo 6 caracteres' : null,
+                    validator: (value) {
+                      // CU-06 Flujo Alterno 3.2 (RNF_S_01): política estricta de
+                      // complejidad de contraseña desde el frontend.
+                      if (value == null || !PasswordPolicy.isValid(value)) {
+                        return PasswordPolicy.errorMessage;
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 14),
 
@@ -240,6 +253,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     validator: (value) {
                       if (value != _passwordController.text) {
                         return 'Las contraseñas no coinciden';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 14),
+
+                  // CU-22: código de invitación opcional para unirse a una obra.
+                  TextFormField(
+                    controller: _invitationCodeController,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(
+                      labelText: 'Código de Invitación (Opcional)',
+                      hintText: 'Ej: CNG-7K2P9Q',
+                      prefixIcon: Icon(Icons.mail_outline, color: AppTheme.accentGold),
+                    ),
+                    validator: (value) {
+                      if (value != null &&
+                          value.trim().isNotEmpty &&
+                          !RegExp(r'^CNG-[A-Z0-9]{6}$', caseSensitive: false)
+                              .hasMatch(value.trim())) {
+                        return 'Formato de código inválido (Ej: CNG-7K2P9Q)';
                       }
                       return null;
                     },

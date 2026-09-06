@@ -4,6 +4,8 @@ import 'package:intl/intl.dart'; // Asegúrate de tener intl en pubspec.yaml
 import '../../../../core/theme/app_theme.dart';
 import '../blocs/works_bloc.dart';
 import '../blocs/works_event.dart';
+import '../blocs/works_state.dart';
+import '../validators/coordinates.dart';
 
 class NewWorkModal extends StatefulWidget {
   const NewWorkModal({super.key});
@@ -18,6 +20,8 @@ class _NewWorkModalState extends State<NewWorkModal> {
   final _direccionController = TextEditingController();
   final _descripcionController = TextEditingController();
   final _propietarioEmailController = TextEditingController();
+  final _latitudController = TextEditingController();
+  final _longitudController = TextEditingController();
   
   DateTime _selectedDate = DateTime.now();
   bool _isLoading = false;
@@ -28,6 +32,8 @@ class _NewWorkModalState extends State<NewWorkModal> {
     _direccionController.dispose();
     _descripcionController.dispose();
     _propietarioEmailController.dispose();
+    _latitudController.dispose();
+    _longitudController.dispose();
     super.dispose();
   }
 
@@ -60,6 +66,8 @@ class _NewWorkModalState extends State<NewWorkModal> {
   }
 
   Future<void> _submitWork() async {
+    // CU-16 paso 1-2: la validación del formulario resalta los campos
+    // obligatorios faltantes y detiene el envío (flujo alterno 2.1/2.2).
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
@@ -74,29 +82,26 @@ class _NewWorkModalState extends State<NewWorkModal> {
         if (_descripcionController.text.isNotEmpty) 'descripcion': _descripcionController.text.trim(),
         'fechaInicio': formattedDateForApi,
         'propietarioEmail': _propietarioEmailController.text.trim().toLowerCase(),
+        // CU-15 (flujo alterno 2.2): ancla geográfica manual opcional.
+        if (Coordinates.parseOrNull(_latitudController.text) != null)
+          'latitud': Coordinates.parseOrNull(_latitudController.text),
+        if (Coordinates.parseOrNull(_longitudController.text) != null)
+          'longitud': Coordinates.parseOrNull(_longitudController.text),
       };
 
       if (!mounted) return;
+      // El resultado (éxito o error de validación del backend) lo informa el
+      // BlocListener: no se confirma nada hasta que la BD responde (CU-13.5).
       context.read<WorksBloc>().add(CreateWorkEvent(workData: workData));
-
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Obra registrada exitosamente en el sistema.'),
-          backgroundColor: Colors.green,
-        ),
-      );
     } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error al registrar la obra: ${e.toString()}'),
           backgroundColor: AppTheme.primaryRed,
         ),
       );
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
     }
   }
 
@@ -105,7 +110,33 @@ class _NewWorkModalState extends State<NewWorkModal> {
     // Formato visual para el usuario (DD/MM/YYYY - Estándar Argentino)
     final String displayDate = DateFormat('dd/MM/yyyy').format(_selectedDate);
 
-    return Padding(
+    // CU-16 (flujo alterno 2.2) + CU-13 paso 5: el éxito sólo se informa
+    // cuando la BD confirma la persistencia; ante un error del backend el
+    // modal permanece abierto mostrando el mensaje.
+    return BlocListener<WorksBloc, WorksState>(
+      listener: (listenerContext, state) {
+        if (!_isLoading) return;
+        if (state is WorksLoaded) {
+          setState(() => _isLoading = false);
+          final messenger = ScaffoldMessenger.of(listenerContext);
+          Navigator.pop(listenerContext);
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text('Obra registrada exitosamente en el sistema.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else if (state is WorksError) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(listenerContext).showSnackBar(
+            SnackBar(
+              content: Text(state.message),
+              backgroundColor: AppTheme.primaryRed,
+            ),
+          );
+        }
+      },
+      child: Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
         left: 24,
@@ -182,6 +213,39 @@ class _NewWorkModalState extends State<NewWorkModal> {
               ),
               const SizedBox(height: 14),
 
+              // CU-15 (flujo alterno 2.2): coordenadas manuales opcionales
+              // cuando no hay geocodificación automática disponible.
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _latitudController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                      decoration: const InputDecoration(
+                        labelText: 'Latitud (Opcional)',
+                        hintText: 'Ej: -34.6037',
+                        prefixIcon: Icon(Icons.my_location_outlined, color: AppTheme.accentGold),
+                      ),
+                      validator: Coordinates.validateLatitude,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _longitudController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                      decoration: const InputDecoration(
+                        labelText: 'Longitud (Opcional)',
+                        hintText: 'Ej: -58.3816',
+                        prefixIcon: Icon(Icons.my_location_outlined, color: AppTheme.accentGold),
+                      ),
+                      validator: Coordinates.validateLongitude,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
               // UX Mejorada: Selector de Fecha táctil (Evita tipeo manual de guiones)
               InkWell(
                 onTap: () => _selectDate(context),
@@ -219,6 +283,6 @@ class _NewWorkModalState extends State<NewWorkModal> {
           ),
         ),
       ),
-    );
+    ));
   }
 }

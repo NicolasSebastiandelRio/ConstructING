@@ -13,6 +13,12 @@ import 'features/works/data/datasources/works_remote_data_source.dart';
 import 'features/works/presentation/blocs/works_bloc.dart';
 import 'features/works/presentation/screens/works_dashboard_screen.dart';
 
+/// Punto de entrada de ConstructING.
+///
+/// ESTRATEGIA DE PRODUCTO (ver `core/config/deployment.dart`):
+/// desarrollo mobile-first, entrega como URL web (`flutter build web`).
+/// No se distribuye como app descargable: el artefacto final vive en
+/// `build/web` y se sirve desde hosting estático.
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 

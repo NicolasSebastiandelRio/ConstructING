@@ -6,12 +6,12 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   /**
-   * Endpoint de Registro (CU-06 y CU-10)
+   * Endpoint de Registro (CU-06 y CU-10, con reclamo de invitación CU-22)
    * Ruta final: POST /auth/register
    */
   @Post('register')
   async register(
-    @Body() dto: { email: string; password: string; role: string },
+    @Body() dto: { email: string; password: string; role: string; invitationCode?: string },
   ) {
     return this.authService.register(dto);
   }

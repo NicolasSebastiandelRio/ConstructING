@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_event.dart';
@@ -22,11 +23,28 @@ class WorksDashboardScreen extends StatefulWidget {
 }
 
 class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
+  /// CU-21 paso 4: vista activa vs historial de archivadas.
+  bool _showArchived = false;
+
   @override
   void initState() {
     super.initState();
-    // Disparamos la consulta al endpoint GET /works al cargar la vista (CU-18)
-    context.read<WorksBloc>().add(FetchWorksEvent());
+    _loadWorks();
+  }
+
+  /// CU-18: consulta las obras vinculadas al rol del usuario actual.
+  /// El Propietario ve "Mis Obras" (filtradas por su ID); el Profesional,
+  /// el listado general. Con `_showArchived`, el historial (CU-21).
+  Future<void> _loadWorks() async {
+    String? propietarioId;
+    if (!_isProfesional) {
+      propietarioId = await const FlutterSecureStorage().read(key: 'user_id');
+    }
+    if (!mounted) return;
+    context.read<WorksBloc>().add(FetchWorksEvent(
+          propietarioId: propietarioId,
+          archivedOnly: _showArchived,
+        ));
   }
 
   bool get _isProfesional => widget.userRole.toLowerCase().contains('profesional');
@@ -86,26 +104,84 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
                 _isProfesional ? 'Propiedades en desarrollo activo' : 'Seguimiento de tus construcciones',
                 style: const TextStyle(color: Colors.white70, fontSize: 13, fontFamily: 'Cinzel'),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              // CU-21 paso 4: alterna entre el listado activo y el historial.
+              Row(
+                children: [
+                  ChoiceChip(
+                    label: const Text('Activas'),
+                    selected: !_showArchived,
+                    selectedColor: AppTheme.accentGold,
+                    labelStyle: TextStyle(
+                      color: !_showArchived ? Colors.black : Colors.white70,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    onSelected: (_) {
+                      if (_showArchived) {
+                        setState(() => _showArchived = false);
+                        _loadWorks();
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Historial'),
+                    selected: _showArchived,
+                    selectedColor: AppTheme.accentGold,
+                    labelStyle: TextStyle(
+                      color: _showArchived ? Colors.black : Colors.white70,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    onSelected: (_) {
+                      if (!_showArchived) {
+                        setState(() => _showArchived = true);
+                        _loadWorks();
+                      }
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
               Expanded(
                 child: BlocBuilder<WorksBloc, WorksState>(
+                  // CU-19: los estados de la ficha técnica no deben redibujar
+                  // (ni vaciar) el listado que queda debajo de la ficha.
+                  buildWhen: (previous, current) =>
+                      current is WorksLoading ||
+                      current is WorksLoaded ||
+                      current is WorksError,
                   builder: (context, state) {
                     if (state is WorksLoading) {
                       return const Center(child: CircularProgressIndicator(color: AppTheme.accentGold));
                     } else if (state is WorksError) {
                       return Center(
-                        child: Text(
-                          state.message,
-                          style: const TextStyle(color: AppTheme.primaryRed),
-                          textAlign: TextAlign.center,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              state.message,
+                              style: const TextStyle(color: AppTheme.primaryRed),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            ElevatedButton.icon(
+                              onPressed: _loadWorks,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Reintentar'),
+                              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentGold, foregroundColor: Colors.black),
+                            ),
+                          ],
                         ),
                       );
                     } else if (state is WorksLoaded) {
                       if (state.works.isEmpty) {
-                        return const Center(
+                        // CU-18 Alt. 2.2 / CU-21 Historial vacío.
+                        return Center(
                           child: Text(
-                            'Aún no hay proyectos registrados en el sistema.',
-                            style: TextStyle(color: Colors.white54),
+                            _showArchived
+                                ? 'No hay obras archivadas en el historial'
+                                : 'Aún no tienes obras asignadas',
+                            style: const TextStyle(color: Colors.white54),
                           ),
                         );
                       }

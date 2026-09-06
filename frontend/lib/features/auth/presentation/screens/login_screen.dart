@@ -22,6 +22,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  /// Controla si la contraseña se muestra en texto plano o oculta.
+  bool _obscurePassword = true;
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -153,10 +156,23 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       TextFormField(
                         controller: _passwordController,
-                        obscureText: true,
-                        decoration: const InputDecoration(
+                        obscureText: _obscurePassword,
+                        decoration: InputDecoration(
                           labelText: 'Contraseña',
-                          prefixIcon: Icon(Icons.lock_outline, color: AppTheme.accentGold),
+                          prefixIcon: const Icon(Icons.lock_outline, color: AppTheme.accentGold),
+                          // Botón para visualizar/ocultar la contraseña (dorado institucional).
+                          suffixIcon: IconButton(
+                            tooltip: _obscurePassword ? 'Mostrar contraseña' : 'Ocultar contraseña',
+                            icon: Icon(
+                              _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                              color: AppTheme.accentGold,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                          ),
                         ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {

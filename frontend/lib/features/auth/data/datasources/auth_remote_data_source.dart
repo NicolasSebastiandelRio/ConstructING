@@ -10,6 +10,7 @@ abstract class AuthRemoteDataSource {
     required String password,
     required String rol,
     String? matricula,
+    String? invitationCode,
   });
 }
 
@@ -66,6 +67,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     required String password,
     required String rol,
     String? matricula,
+    String? invitationCode,
   }) async {
     try {
       final response = await _dioClient.dio.post(
@@ -76,6 +78,9 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
           'password': password,
           'role': rol, // Alineado con NestJS
           if (matricula != null) 'matricula': matricula,
+          // CU-22: reclamo de la invitación en el registro (opcional).
+          if (invitationCode != null && invitationCode.trim().isNotEmpty)
+            'invitationCode': invitationCode.trim().toUpperCase(),
         },
       );
 

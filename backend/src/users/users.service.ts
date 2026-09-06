@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
 import { UserEntity } from '../auth/user.entity';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { validatePasswordPolicy } from '../common/password-policy';
+import { isUniqueConstraintViolation } from '../common/db-error';
 
+const SALT_ROUNDS = 10;
 
 @Injectable()
 export class UsersService {
@@ -43,18 +47,39 @@ export class UsersService {
   async update(id: string, updateUserDto: UpdateUserDto): Promise<UserEntity> {
     const user = await this.findOne(id);
 
-    // Validar unicidad de correo si se intenta modificar (CU-10 / CU-07 Flujo Alterno)
+    // CU-07 Flujo Alterno 3.1/3.2: validar unicidad de correo inmutable (CU-10)
     if (updateUserDto.email && updateUserDto.email !== user.email) {
       const existingEmail = await this.userRepository.findOne({ 
         where: { email: updateUserDto.email } 
       });
       if (existingEmail) {
-        throw new BadRequestException('El correo electrónico ya se encuentra registrado por otro usuario.');
+        throw new BadRequestException('Correo ya registrado');
       }
     }
 
-    Object.assign(user, updateUserDto);
-    return await this.userRepository.save(user);
+    // CU-07 + CU-11: si se modifica la contraseña, validar la política y
+    // encriptarla antes de persistir (nunca guardar texto plano).
+    const { password, ...rest } = updateUserDto;
+    if (password) {
+      validatePasswordPolicy(password);
+      user.passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    }
+
+    Object.assign(user, rest);
+
+    // CU-10 respaldo: si dos PATCH concurrentes intentan el mismo correo, la
+    // restricción UNIQUE de la BD impide el duplicado (Flujo Alterno 3.2).
+    try {
+      const updated = await this.userRepository.save(user);
+      // Evita exponer el hash en la respuesta.
+      delete (updated as Partial<UserEntity>).passwordHash;
+      return updated;
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        throw new BadRequestException('Correo ya registrado');
+      }
+      throw error;
+    }
   }
 
   /**
@@ -63,5 +88,17 @@ export class UsersService {
   async softDelete(id: string): Promise<void> {
     await this.findOne(id);
     await this.userRepository.softDelete(id);
+  }
+
+  /**
+   * CU-08 (complemento operativo): Habilitar un usuario inhabilitado.
+   * TypeORM `restore` limpia la marca de borrado lógico dejando intacto
+   * el resto del perfil.
+   */
+  async restore(id: string): Promise<UserEntity> {
+    const user = await this.findOne(id); // withDeleted: incluye inactivos
+    await this.userRepository.restore(id);
+    user.deletedAt = null;
+    return user;
   }
 }

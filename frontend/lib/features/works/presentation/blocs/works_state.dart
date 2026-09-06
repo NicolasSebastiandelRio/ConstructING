@@ -29,3 +29,16 @@ class WorksError extends WorksState {
   @override
   List<Object?> get props => [message];
 }
+
+/// CU-19: la ficha técnica se está recuperando desde la BD.
+class WorkDetailLoading extends WorksState {}
+
+/// CU-19: datos maestros de la obra seleccionada.
+class WorkDetailLoaded extends WorksState {
+  final WorkEntity work;
+
+  const WorkDetailLoaded({required this.work});
+
+  @override
+  List<Object?> get props => [work];
+}

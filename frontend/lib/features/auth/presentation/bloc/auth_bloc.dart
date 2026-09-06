@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../../../core/security/jwt_session.dart';
 import '../../data/datasources/auth_remote_data_source.dart';
 import '../../data/models/user_model.dart';
 import 'auth_event.dart';
@@ -21,7 +22,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       final userEmail = await secureStorage.read(key: 'user_email');
       final userRole = await secureStorage.read(key: 'user_role');
 
-      if (token == null || userId == null || userName == null || userEmail == null || userRole == null) {
+      // CU-05 / RNF_S_01: un token expirado debe invalidar la sesión local y
+      // obligar a re-autenticarse, evitando una sesión "zombie" sin vigencia.
+      if (token == null || JwtSession.isExpired(token)) {
+        await secureStorage.deleteAll();
+        emit(AuthInitial());
+        return;
+      }
+
+      if (userId == null || userName == null || userEmail == null || userRole == null) {
         await secureStorage.deleteAll();
         emit(AuthInitial());
         return;

@@ -13,27 +13,37 @@ class WorkModel extends WorkEntity {
     required super.progreso,
     required super.profesionalId,
     super.propietarioId,
+    super.propietarioNombre,
+    super.propietarioEmail,
   });
 
+  static double? _parseCoord(dynamic value) {
+    if (value == null) return null;
+    return double.tryParse(value.toString());
+  }
+
   factory WorkModel.fromJson(Map<String, dynamic> json) {
+    final owner = json['propietario'];
+    final Map<String, dynamic>? ownerMap =
+        owner is Map<String, dynamic> ? owner : null;
     return WorkModel(
       id: json['id'] ?? '',
       nombre: json['nombre'] ?? '',
       direccion: json['direccion'] ?? '',
       descripcion: json['descripcion'],
-      latitud: (json['latitud'] != null)
-          ? double.tryParse(json['latitud'].toString()) ?? -34.6037
-          : -34.6037,
-      longitud: (json['longitud'] != null)
-          ? double.tryParse(json['longitud'].toString()) ?? -58.3816
-          : -58.3816,
+      // Sin ancla en BD se preserva null (no se inventan coordenadas).
+      latitud: _parseCoord(json['latitud']),
+      longitud: _parseCoord(json['longitud']),
       fechaInicio: json['fecha_inicio'] ?? json['fechaInicio'] ?? '',
       estado: json['estado'] ?? 'En progreso',
       progreso: (json['progreso'] != null)
           ? double.tryParse(json['progreso'].toString()) ?? 0.0
           : 0.0,
       profesionalId: json['profesional_id'] ?? json['profesionalId'] ?? '',
-      propietarioId: json['propietario_id'] ?? json['propietarioId'],
+      propietarioId:
+          json['propietario_id'] ?? json['propietarioId'] ?? ownerMap?['id'],
+      propietarioNombre: ownerMap?['nombre'],
+      propietarioEmail: ownerMap?['email'],
     );
   }
 
