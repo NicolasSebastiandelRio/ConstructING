@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'core/network/dio_client.dart';
+import 'core/network/connectivity_cubit.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/data/datasources/auth_remote_data_source.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
@@ -47,6 +48,13 @@ void main() {
           create: (context) => WorksBloc(
             worksRemoteDataSource: worksRemoteDataSource,
           ),
+        ),
+        // Estado global de conectividad Online/Offline (CU-43, PT-06).
+        // El Sprint 4 (CU-44) lo escuchará para despertar la sincronización.
+        BlocProvider<ConnectivityCubit>(
+          create: (context) => ConnectivityCubit(
+            monitor: buildProductionMonitor(dioClient.dio),
+          )..start(),
         ),
       ],
       child: const ConstructINGApp(),

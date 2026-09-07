@@ -15,11 +15,14 @@ import 'package:constructing_mobile/features/auth/presentation/bloc/auth_bloc.da
 import 'package:constructing_mobile/features/works/data/datasources/works_remote_data_source.dart';
 import 'package:constructing_mobile/features/works/data/models/work_invitation.dart';
 import 'package:constructing_mobile/features/works/data/models/work_model.dart';
+import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
 import 'package:constructing_mobile/features/works/presentation/blocs/works_bloc.dart';
 import 'package:constructing_mobile/features/works/presentation/blocs/works_event.dart';
 import 'package:constructing_mobile/features/works/presentation/blocs/works_state.dart';
 import 'package:constructing_mobile/features/works/presentation/screens/work_detail_screen.dart';
 import 'package:constructing_mobile/features/works/presentation/screens/works_dashboard_screen.dart';
+
+import 'milestones_test_helpers.dart';
 
 class _FakeSecureStoragePlatform extends FlutterSecureStoragePlatform {
   _FakeSecureStoragePlatform([Map<String, String>? seed]) : store = Map.of(seed ?? {});
@@ -269,7 +272,11 @@ void main() {
   });
 
   group('Diálogo Archivar Proyecto (CU-21 paso 1)', () {
-    Future<void> pumpFicha(WidgetTester tester, _FakeWorksDataSource dataSource) async {
+    Future<void> pumpFicha(
+      WidgetTester tester,
+      _FakeWorksDataSource dataSource, {
+      FakeMilestoneDao? milestonesDao,
+    }) async {
       final bloc = WorksBloc(worksRemoteDataSource: dataSource);
       await tester.pumpWidget(
         MaterialApp(
@@ -281,7 +288,11 @@ void main() {
                     MaterialPageRoute(
                       builder: (_) => BlocProvider<WorksBloc>.value(
                         value: bloc,
-                        child: WorkDetailScreen(work: _obra(estado: 'Completado'), userRole: 'Profesional'),
+                        child: WorkDetailScreen(
+                          work: _obra(estado: 'Completado'),
+                          userRole: 'Profesional',
+                          milestonesDao: milestonesDao,
+                        ),
                       ),
                     ),
                   ),
@@ -350,6 +361,67 @@ void main() {
       expect(dataSource.archiveCalls, 1);
       expect(find.textContaining('Completado'), findsWidgets);
       expect(find.text('ARCHIVAR PROYECTO'), findsOneWidget);
+    });
+
+    testWidgets('CU-21 Alt 2.1: con hitos En Ejecución bloquea e indica pendientes',
+        (tester) async {
+      final dataSource = _FakeWorksDataSource();
+      final milestonesDao = FakeMilestoneDao();
+      milestonesDao.seed([
+        const Milestone(
+          id: 'h1',
+          obraId: 'w1',
+          nombre: 'Muros',
+          duracionDias: 8,
+          estado: MilestoneStatus.enEjecucion,
+        ),
+        const Milestone(
+          id: 'h2',
+          obraId: 'w1',
+          nombre: 'Cimientos',
+          duracionDias: 5,
+          estado: MilestoneStatus.certificado,
+        ),
+      ]);
+      await pumpFicha(tester, dataSource, milestonesDao: milestonesDao);
+      await openArchiveDialog(tester);
+
+      await tester.tap(find.text('Archivar'));
+      await tester.pumpAndSettle();
+
+      // Mensaje exacto de la spec + obra intacta + diálogo abierto.
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.textContaining('deben cerrarse todas las tareas pendientes'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Muros'), findsWidgets);
+      expect(dataSource.archiveCalls, 0);
+      expect(find.text('ARCHIVAR PROYECTO'), findsOneWidget);
+    });
+
+    testWidgets('sin hitos en ejecución el guard deja archivar', (tester) async {
+      final dataSource = _FakeWorksDataSource();
+      final milestonesDao = FakeMilestoneDao();
+      milestonesDao.seed([
+        const Milestone(
+          id: 'h1',
+          obraId: 'w1',
+          nombre: 'Cimientos',
+          duracionDias: 5,
+          estado: MilestoneStatus.certificado,
+        ),
+      ]);
+      await pumpFicha(tester, dataSource, milestonesDao: milestonesDao);
+      await openArchiveDialog(tester);
+
+      await tester.tap(find.text('Archivar'));
+      await tester.pumpAndSettle();
+
+      expect(dataSource.archiveCalls, 1);
+      expect(find.text('Obra archivada. Se movió al historial.'), findsOneWidget);
     });
   });
 

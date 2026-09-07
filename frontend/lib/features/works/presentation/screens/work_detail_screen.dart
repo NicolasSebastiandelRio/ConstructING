@@ -1,18 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/storage/local_database.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/entities/work_entity.dart';
 import '../blocs/works_bloc.dart';
 import '../blocs/works_event.dart';
 import '../blocs/works_state.dart';
 import '../widgets/edit_work_modal.dart';
+import '../../../milestones/presentation/widgets/milestones_section.dart';
+import '../../../milestones/data/datasources/estimated_end_writer.dart';
+import '../../../milestones/data/datasources/milestone_local_data_source.dart';
+import '../../../milestones/domain/entities/milestone.dart';
 
 class WorkDetailScreen extends StatefulWidget {
   final WorkEntity work;
   final String userRole; // <-- Agregado para Control de Acceso (RBAC)
 
+  /// DAO de hitos para el guard de archivado CU-21 Alt 2.1 (inyectable en
+  /// tests; en producción se crea sobre la BD local real).
+  final MilestoneLocalDataSource? milestonesDao;
+
   const WorkDetailScreen(
-      {super.key, required this.work, required this.userRole});
+      {super.key,
+      required this.work,
+      required this.userRole,
+      this.milestonesDao});
 
   @override
   State<WorkDetailScreen> createState() => _WorkDetailScreenState();
@@ -85,7 +97,10 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
       context: context,
       builder: (_) => BlocProvider.value(
         value: bloc,
-        child: _ArchiveDialog(work: current),
+        child: _ArchiveDialog(
+          work: current,
+          milestonesDao: widget.milestonesDao,
+        ),
       ),
     );
     if (archived == true && context.mounted) {
@@ -273,6 +288,20 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                           Text(current.fechaInicio,
                               style: const TextStyle(
                                   color: Colors.white, fontSize: 14)),
+                          // CU-30: fecha estimada ajustada por la ruta crítica
+                          // (null hasta el primer recálculo).
+                          if (current.fechaFinEstimada != null) ...[
+                            const SizedBox(height: 12),
+                            const Text('Fin Estimado (Ruta Crítica)',
+                                style: TextStyle(
+                                    color: Colors.white70, fontSize: 12)),
+                            const SizedBox(height: 4),
+                            Text(current.fechaFinEstimada!,
+                                style: const TextStyle(
+                                    color: AppTheme.accentGold,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold)),
+                          ],
                           // CU-19: resto de los datos maestros de la obra.
                           if (current.descripcion != null &&
                               current.descripcion!.trim().isNotEmpty) ...[
@@ -321,29 +350,20 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Sección de Línea de Tiempo / Hitos (Mockup 7)
-                    const Text(
-                      'LÍNEA DE TIEMPO DEL PROYECTO',
-                      style: TextStyle(
-                        fontFamily: 'Cinzel',
-                        color: AppTheme.accentGold,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: AppTheme.darkSurface,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Center(
-                        child: Text(
-                          'No hay hitos registrados en este proyecto todavía.\n(Módulo de Hitos - Sprint 3)',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white54, fontSize: 13),
-                        ),
+                    // Hoja de Ruta / Roadmap secuencial (CU-23 + ruta crítica).
+                    // La ruta se ancla a la fecha de inicio del proyecto y al
+                    // editar un hito se notifica al propietario.
+                    MilestonesSection(
+                      obraId: current.id,
+                      isProfesional: _isProfesional,
+                      obraFechaInicio: current.fechaInicio,
+                      propietarioEmail: current.propietarioEmail,
+                      propietarioNombre: current.propietarioNombre,
+                      // CU-30: al recalcular se escribe la fecha estimada.
+                      scheduleWriter: WorksApiEstimatedEndWriter(
+                        works: context
+                            .read<WorksBloc>()
+                            .worksRemoteDataSource,
                       ),
                     ),
                   ],
@@ -478,7 +498,10 @@ class _StatusDialogState extends State<_StatusDialog> {
 class _ArchiveDialog extends StatefulWidget {
   final WorkEntity work;
 
-  const _ArchiveDialog({required this.work});
+  /// DAO de hitos para el guard de CU-21 Alt 2.1 (inyectable en tests).
+  final MilestoneLocalDataSource? milestonesDao;
+
+  const _ArchiveDialog({required this.work, this.milestonesDao});
 
   @override
   State<_ArchiveDialog> createState() => _ArchiveDialogState();
@@ -487,8 +510,38 @@ class _ArchiveDialog extends StatefulWidget {
 class _ArchiveDialogState extends State<_ArchiveDialog> {
   bool _isLoading = false;
 
-  void _submit() {
+  /// CU-21 Alt 2.1/2.2: si la obra posee hitos "En Ejecución", bloquea el
+  /// archivado indicando que deben cerrarse todas las tareas pendientes.
+  /// Los hitos viven solo en la BD local (alcance SP del Sprint 3), por eso
+  /// el chequeo es del lado cliente; el servidor no tiene visibilidad.
+  Future<void> _submit() async {
     setState(() => _isLoading = true);
+    try {
+      final dao = widget.milestonesDao ??
+          MilestoneLocalDataSource(localDatabase: LocalDatabase());
+      final milestones = await dao.listByObra(widget.work.id);
+      final running = milestones
+          .where((m) => m.estado == MilestoneStatus.enEjecucion)
+          .toList();
+      if (running.isNotEmpty) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No se puede archivar: deben cerrarse todas las tareas '
+              'pendientes (En Ejecución: ${running.map((m) => m.nombre).join(', ')}).',
+            ),
+            backgroundColor: AppTheme.primaryRed,
+          ),
+        );
+        return;
+      }
+    } catch (_) {
+      // Fail-open documentado: si la BD local es ilegible no se bloquea el
+      // archivado (en producción siempre responde; el guard es asesor).
+    }
+    if (!mounted) return;
     context.read<WorksBloc>().add(ArchiveWorkEvent(id: widget.work.id));
   }
 

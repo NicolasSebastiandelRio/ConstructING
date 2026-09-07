@@ -67,25 +67,29 @@ CREATE TABLE milestone_dependencies(
             ? name
             : await resolveDatabasePath(name);
     try {
-      final db = await factory.openDatabase(
-        fullPath,
-        options: OpenDatabaseOptions(
-          version: schemaVersion,
-          onCreate: (db, version) async {
-            await db.execute(createMilestones);
-            await db.execute(createMilestoneDependencies);
-            await db.execute(
-                'CREATE INDEX idx_milestones_obra ON milestones(obra_id)');
-            await db.execute(
-                'CREATE INDEX idx_dependencies_hito ON milestone_dependencies(hito_id)');
-          },
-        ),
-      );
+      // En web la apertura carga el worker + sqlite3.wasm: si eso se cuelga
+      // se corta con error visible en vez de un spinner eterno.
+      final db = await factory
+          .openDatabase(
+            fullPath,
+            options: OpenDatabaseOptions(
+              version: schemaVersion,
+              onCreate: (db, version) async {
+                await db.execute(createMilestones);
+                await db.execute(createMilestoneDependencies);
+                await db.execute(
+                    'CREATE INDEX idx_milestones_obra ON milestones(obra_id)');
+                await db.execute(
+                    'CREATE INDEX idx_dependencies_hito ON milestone_dependencies(hito_id)');
+              },
+            ),
+          )
+          .timeout(const Duration(seconds: 15));
       _db = db;
       return db;
     } catch (e) {
       // RNF_C_02: alertar de inmediato (la UI muestra este mensaje).
-      throw CacheStorageException(
+      throw const CacheStorageException(
         'No se pudo guardar localmente. Verifique el espacio disponible en el dispositivo.',
       );
     }

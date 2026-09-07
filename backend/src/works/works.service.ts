@@ -51,6 +51,10 @@ export class WorksService {
   async create(createWorkDto: CreateWorkDto): Promise<WorkEntity> {
     const { propietarioEmail, propietarioId, ...workData } = createWorkDto;
 
+    // CU-30: la fecha estimada solo la escribe el sistema tras recalcular
+    // (nunca viene del alta).
+    delete (workData as Record<string, unknown>).fechaFinEstimada;
+
     // CU-14: resolución del propietario por correo (flujo normal) o por ID.
     const propietario = await this.resolvePropietario(propietarioEmail, propietarioId);
 

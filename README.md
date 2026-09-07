@@ -93,9 +93,14 @@ El mismo código mobile-first compila a web sin cambios (`flutter build web`
 verificado). No se publica en tiendas:
 ```bash
 cd frontend
-flutter run -d chrome    # desarrollo en el navegador
+flutter run -d edge --web-port=8080   # desarrollo en el navegador
 flutter build web        # artefacto en build/web → subir a hosting estático
 ```
+> - Usá siempre el mismo `--web-port`: la caché local (IndexedDB) está atada
+>   al puerto y con otro puerto los hitos "desaparecen".
+> - La caché local necesita `frontend/web/sqlite3.wasm` y `sqflite_sw.js`
+>   (ya commiteados). Si se actualiza el paquete `sqflite_common_ffi_web`,
+>   regenerarlos con `dart run sqflite_common_ffi_web:setup` (o `--force`).
 > Nota: en web, `flutter_secure_storage` persiste en `localStorage` (no es
 > almacenamiento seguro real). Para producción web se recomienda migrar la
 > sesión a cookies `httpOnly` gestionadas por el backend.

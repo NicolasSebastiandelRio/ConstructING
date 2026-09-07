@@ -15,6 +15,7 @@ class WorkModel extends WorkEntity {
     super.propietarioId,
     super.propietarioNombre,
     super.propietarioEmail,
+    super.fechaFinEstimada,
   });
 
   static double? _parseCoord(dynamic value) {
@@ -35,6 +36,9 @@ class WorkModel extends WorkEntity {
       latitud: _parseCoord(json['latitud']),
       longitud: _parseCoord(json['longitud']),
       fechaInicio: json['fecha_inicio'] ?? json['fechaInicio'] ?? '',
+      // CU-30: fecha estimada ajustada por la ruta crítica (null si no hay).
+      fechaFinEstimada:
+          json['fecha_fin_estimada'] ?? json['fechaFinEstimada'],
       estado: json['estado'] ?? 'En progreso',
       progreso: (json['progreso'] != null)
           ? double.tryParse(json['progreso'].toString()) ?? 0.0

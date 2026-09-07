@@ -240,7 +240,9 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
   Widget _buildWorkCard(BuildContext context, WorkEntity work) {
     return InkWell(
         onTap: () {
-        // Navegación hacia la Ficha Técnica de la Obra (CU-19 / Mockup 7)
+        // Navegación hacia la Ficha Técnica de la Obra (CU-19 / Mockup 7).
+        // Al volver se recarga el listado (CU-30 paso 4 y mutaciones de la
+        // ficha: edición, estado, archivado).
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -249,7 +251,9 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
               userRole: widget.userRole, 
             ),
           ),
-        );
+        ).then((_) {
+          if (context.mounted) _loadWorks();
+        });
       },
       borderRadius: BorderRadius.circular(12),
       child: Container(

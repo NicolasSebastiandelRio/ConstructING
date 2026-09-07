@@ -8,6 +8,10 @@ class WorkEntity extends Equatable {
   final double? latitud;
   final double? longitud;
   final String fechaInicio;
+
+  /// CU-30: fecha final estimada ajustada por la ruta crítica (null hasta el
+  /// primer recálculo).
+  final String? fechaFinEstimada;
   final String estado;
   final double progreso;
   final String profesionalId;
@@ -24,6 +28,7 @@ class WorkEntity extends Equatable {
     required this.latitud,
     required this.longitud,
     required this.fechaInicio,
+    this.fechaFinEstimada,
     required this.estado,
     required this.progreso,
     required this.profesionalId,
@@ -41,6 +46,7 @@ class WorkEntity extends Equatable {
         latitud,
         longitud,
         fechaInicio,
+        fechaFinEstimada,
         estado,
         progreso,
         profesionalId,

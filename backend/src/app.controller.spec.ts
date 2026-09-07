@@ -19,4 +19,13 @@ describe('AppController', () => {
       expect(appController.getHello()).toBe('Hello World!');
     });
   });
+
+  describe('health (CU-43 heartbeat)', () => {
+    it('responde ok con timestamp', () => {
+      const result = appController.health();
+
+      expect(result.status).toBe('ok');
+      expect(Date.parse(result.timestamp)).not.toBeNaN();
+    });
+  });
 });

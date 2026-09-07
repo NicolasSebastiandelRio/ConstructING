@@ -31,6 +31,14 @@ export class WorkEntity {
   @Column({ type: 'date' })
   fechaInicio!: string;
 
+  /**
+   * CU-30: fecha final estimada del proyecto, ajustada automáticamente por
+   * la ruta crítica (duración total en días desde fechaInicio). Nula hasta
+   * el primer recálculo.
+   */
+  @Column({ name: 'fecha_fin_estimada', type: 'date', nullable: true })
+  fechaFinEstimada?: string | null;
+
   @Column({ type: 'text', nullable: true })
   descripcion?: string; // Opcional (permite valores nulos)
 

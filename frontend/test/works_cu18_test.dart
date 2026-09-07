@@ -104,9 +104,11 @@ class _FakeWorksDataSource implements WorksRemoteDataSource {
   final List<WorkModel> works;
   String? lastPropietarioId;
   bool? lastArchivedOnly;
+  int getWorksCalls = 0;
 
   @override
   Future<List<WorkModel>> getWorks({String? propietarioId, bool archivedOnly = false}) async {
+    getWorksCalls++;
     lastPropietarioId = propietarioId;
     lastArchivedOnly = archivedOnly;
     return works;
@@ -177,21 +179,23 @@ Future<_FakeWorksDataSource> _pumpDashboard(
   FlutterSecureStoragePlatform.instance = _FakeSecureStoragePlatform(_sessionStore(role));
   final worksDataSource = _FakeWorksDataSource(works);
 
+  // Los providers van POR ENCIMA del MaterialApp (igual que en main.dart):
+  // solo así las rutas pusheadas (ficha) heredan los blocs.
   await tester.pumpWidget(
-    MaterialApp(
-      home: MultiBlocProvider(
-        providers: [
-          BlocProvider<AuthBloc>(
-            create: (_) => AuthBloc(
-              authRemoteDataSource: _FakeAuthDataSource(),
-              secureStorage: const FlutterSecureStorage(),
-            ),
+    MultiBlocProvider(
+      providers: [
+        BlocProvider<AuthBloc>(
+          create: (_) => AuthBloc(
+            authRemoteDataSource: _FakeAuthDataSource(),
+            secureStorage: const FlutterSecureStorage(),
           ),
-          BlocProvider<WorksBloc>(
-            create: (_) => WorksBloc(worksRemoteDataSource: worksDataSource),
-          ),
-        ],
-        child: WorksDashboardScreen(userRole: role),
+        ),
+        BlocProvider<WorksBloc>(
+          create: (_) => WorksBloc(worksRemoteDataSource: worksDataSource),
+        ),
+      ],
+      child: MaterialApp(
+        home: WorksDashboardScreen(userRole: role),
       ),
     ),
   );
@@ -310,6 +314,23 @@ void main() {
       expect(find.text('Obra A1'), findsOneWidget);
       expect(find.text('Obra A2'), findsOneWidget);
       expect(find.text('Aún no tienes obras asignadas'), findsNothing);
+    });
+
+    testWidgets('CU-30 paso 4: al volver de la ficha recarga el listado', (tester) async {
+      final dataSource =
+          await _pumpDashboard(tester, role: 'Profesional', works: [_obra('Obra A1')]);
+      expect(dataSource.getWorksCalls, 1);
+
+      // Entra a la ficha y vuelve: el dashboard debe refrescar.
+      await tester.tap(find.text('Obra A1'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ubicación'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+
+      expect(dataSource.getWorksCalls, 2);
+      expect(find.text('Obra A1'), findsOneWidget);
     });
   });
 }
