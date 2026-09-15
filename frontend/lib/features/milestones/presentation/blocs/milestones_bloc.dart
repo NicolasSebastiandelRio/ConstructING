@@ -84,9 +84,13 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
         if (event.duracionDias < 0) {
           throw Exception('La duración debe ser un número mayor o igual a 0.');
         }
+        // Paso 4 "encola sincronización": la edición marca el registro como
+        // pendiente de subida (es_sincronizado=false) para que CU-44
+        // (Sprint 4) reenvíe el cambio a la nube.
         final updated = current.copyWith(
           descripcion: event.descripcion,
           duracionDias: event.duracionDias,
+          esSincronizado: false,
         );
         await dataSource.update(updated);
         final cpm = await _recalculateCriticalPath(current.obraId);

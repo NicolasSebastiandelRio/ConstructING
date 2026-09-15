@@ -96,6 +96,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // Logo institucional de ConstructING sobre el título.
+                      // Mismo tamaño que la pantalla de inicio (AppLogoHeader).
+                      Image.asset(
+                        'assets/images/logo.png',
+                        height: 140,
+                        fit: BoxFit.contain,
+                      ),
+                      const SizedBox(height: 16),
                       const Text(
                         'INICIAR SESIÓN',
                         textAlign: TextAlign.center,

@@ -321,6 +321,38 @@ void main() {
       expect(loaded.milestones.single.duracionDias, 15);
     });
 
+    test('marca el hito editado como pendiente de sincronización (CU-25 paso 4)', () async {
+      final dao = await openTestDao('cu25sync');
+      final created = await dao.create(
+        obraId: 'w1',
+        nombre: 'Cimientos',
+        descripcion: 'Vieja',
+        duracionDias: 10,
+      );
+      // Simulamos un hito ya subido a la nube (CU-44): es_sincronizado=true.
+      await dao.update(created.copyWith(esSincronizado: true));
+      expect((await dao.getById(created.id))?.esSincronizado, isTrue);
+
+      final bloc = MilestonesBloc(dataSource: dao);
+      addTearDown(bloc.close);
+
+      bloc.add(UpdateMilestoneRequested(
+        id: created.id,
+        descripcion: 'Editada',
+        duracionDias: 20,
+      ));
+      await expectLater(
+        bloc.stream,
+        emitsInOrder([isA<MilestonesLoading>(), isA<MilestonesLoaded>()]),
+      );
+
+      // La edición debe re-encolar el registro: es_sincronizado=false.
+      final afterEdit = await dao.getById(created.id);
+      expect(afterEdit?.esSincronizado, isFalse);
+      expect(afterEdit?.descripcion, 'Editada');
+      expect(afterEdit?.duracionDias, 20);
+    });
+
     test('bloquea la edición de un hito no Pendiente (precondición)', () async {
       final dao = await openTestDao('cu23');
       final created = await dao.create(obraId: 'w1', nombre: 'Cimientos', duracionDias: 10);
