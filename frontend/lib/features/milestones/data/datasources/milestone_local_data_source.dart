@@ -176,6 +176,63 @@ class MilestoneLocalDataSource {
     });
   }
 
+  /// Cola de sincronización (CU-44 paso 1): hitos con
+  /// `es_sincronizado=false` de toda la BD.
+  Future<List<Milestone>> listPendingSync() async {
+    final db = await _db;
+    final rows = await db.query(
+      'milestones',
+      where: 'es_sincronizado = ?',
+      whereArgs: [0],
+      orderBy: 'created_at ASC',
+    );
+    return rows.map(Milestone.fromLocalDb).toList();
+  }
+
+  /// CU-44 paso 4: marca el hito como sincronizado (HTTP 200 confirmado).
+  Future<void> markSynced(String id) async {
+    final db = await _db;
+    await db.transaction((txn) async {
+      await txn.update(
+        'milestones',
+        {'es_sincronizado': 1, 'updated_at': _nowIso()},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+
+  /// CU-47 paso 4: adopta el veredicto del servidor (última modificación)
+  /// unificando la línea de tiempo local con la nube.
+  Future<void> applyServerVerdict({
+    required String id,
+    required String estado,
+  }) async {
+    final db = await _db;
+    await db.transaction((txn) async {
+      await txn.update(
+        'milestones',
+        {'estado': estado, 'updated_at': _nowIso()},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+
+  /// `updated_at` de una fila (clave del CU-47 en el servidor).
+  Future<String?> updatedAtOf(String id) async {
+    final db = await _db;
+    final rows = await db.query(
+      'milestones',
+      columns: ['updated_at'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['updated_at'] as String?;
+  }
+
   /// IDs de los hitos que dependen de [predecesorId] (sucesores directos).
   Future<List<String>> successorIds(String predecesorId) async {
     final db = await _db;

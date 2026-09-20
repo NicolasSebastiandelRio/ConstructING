@@ -21,12 +21,13 @@ class CacheStorageException implements Exception {
 /// en móvil, IndexedDB en web (misma API). En tests se inyecta
 /// `sqflite_common_ffi` en memoria.
 ///
-/// Esquema v1: `milestones` (hitos con flag `es_sincronizado` para el motor
-/// de sincronización del Sprint 4, CU-44) y `milestone_dependencies`
-/// (aristas predecesor → hito para CU-24 y la ruta crítica CU-29).
+/// Esquema v2: `milestones` (hitos con flag `es_sincronizado` para el motor
+/// de sincronización, CU-44), `milestone_dependencies` (aristas predecesor →
+/// hito para CU-24 y la ruta crítica CU-29) y `evidences` (evidencias
+/// periciales georreferenciadas de CU-32/33, con checksum CU-45).
 class LocalDatabase {
   static const String fileName = 'constructing.db';
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   static const String createMilestones = '''
 CREATE TABLE milestones(
@@ -47,6 +48,30 @@ CREATE TABLE milestone_dependencies(
   hito_id TEXT NOT NULL,
   predecesor_id TEXT NOT NULL,
   PRIMARY KEY (hito_id, predecesor_id)
+)''';
+
+  /// Tabla de evidencias periciales (CU-32/CU-33 vía CU-42, RF_03/RF_04).
+  /// Nace `es_sincronizado=0`; el CU-44 lo marca al confirmar HTTP 200 y
+  /// liberar el caché temporal.
+  static const String createEvidences = '''
+CREATE TABLE evidences(
+  id TEXT PRIMARY KEY,
+  hito_id TEXT NOT NULL,
+  obra_id TEXT NOT NULL,
+  tipo TEXT NOT NULL,
+  archivo TEXT NOT NULL,
+  nota TEXT,
+  latitud REAL NOT NULL,
+  longitud REAL NOT NULL,
+  precision_m REAL NOT NULL,
+  fecha_captura TEXT NOT NULL,
+  duracion_seg REAL,
+  tamano_bytes INTEGER NOT NULL,
+  checksum TEXT NOT NULL,
+  marca_texto TEXT NOT NULL,
+  es_sincronizado INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 )''';
 
   Database? _db;
@@ -77,10 +102,21 @@ CREATE TABLE milestone_dependencies(
               onCreate: (db, version) async {
                 await db.execute(createMilestones);
                 await db.execute(createMilestoneDependencies);
+                await db.execute(createEvidences);
                 await db.execute(
                     'CREATE INDEX idx_milestones_obra ON milestones(obra_id)');
                 await db.execute(
                     'CREATE INDEX idx_dependencies_hito ON milestone_dependencies(hito_id)');
+                await db.execute(
+                    'CREATE INDEX idx_evidences_hito ON evidences(hito_id)');
+              },
+              onUpgrade: (db, oldVersion, newVersion) async {
+                // Migración v1 → v2: incorpora evidencias (Sprint 4).
+                if (oldVersion < 2) {
+                  await db.execute(createEvidences);
+                  await db.execute(
+                      'CREATE INDEX idx_evidences_hito ON evidences(hito_id)');
+                }
               },
             ),
           )

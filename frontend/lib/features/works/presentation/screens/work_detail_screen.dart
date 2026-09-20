@@ -359,6 +359,10 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                       obraFechaInicio: current.fechaInicio,
                       propietarioEmail: current.propietarioEmail,
                       propietarioNombre: current.propietarioNombre,
+                      // CU-35: ancla geográfica (CU-15) para el guard de
+                      // cercanía de la evidencia.
+                      obraLatitud: current.latitud,
+                      obraLongitud: current.longitud,
                       // CU-30: al recalcular se escribe la fecha estimada.
                       scheduleWriter: WorksApiEstimatedEndWriter(
                         works: context

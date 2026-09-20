@@ -3,13 +3,19 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'core/network/dio_client.dart';
 import 'core/network/connectivity_cubit.dart';
+import 'core/network/connectivity_monitor.dart';
+import 'core/storage/local_database.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/data/datasources/auth_remote_data_source.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_state.dart';
 import 'features/auth/presentation/screens/welcome_screen.dart';
-
-// Importaciones del Módulo de Obras (PT-03)
+import 'features/evidence/data/datasources/evidence_local_data_source.dart';
+import 'features/evidence/gateway/capture_gateway.dart';
+import 'features/milestones/data/datasources/milestone_local_data_source.dart';
+import 'features/sync/data/datasources/sync_remote_data_source.dart';
+import 'features/sync/domain/sync_engine.dart';
+import 'features/sync/presentation/bloc/sync_status_cubit.dart';
 import 'features/works/data/datasources/works_remote_data_source.dart';
 import 'features/works/presentation/blocs/works_bloc.dart';
 import 'features/works/presentation/screens/works_dashboard_screen.dart';
@@ -33,6 +39,20 @@ void main() {
     dioClient: dioClient,
     secureStorage: secureStorage,
   );
+
+  // 3. Infraestructura offline-first: BD local + motor de sincronización
+  // (CU-44 al CU-47, PT-06).
+  const captureGateway = LiveCaptureGateway();
+  final localDatabase = LocalDatabase();
+  final milestoneDao = MilestoneLocalDataSource(localDatabase: localDatabase);
+  final evidenceDao = EvidenceLocalDataSource(localDatabase: localDatabase);
+  final syncEngine = SyncEngine(
+    milestones: milestoneDao,
+    evidences: evidenceDao,
+    remote: HttpSyncRemoteDataSource(dioClient: dioClient),
+    evidenceReader: (path) => captureGateway.readBytes(path),
+  );
+
   runApp(
     MultiBlocProvider(
       providers: [
@@ -50,11 +70,29 @@ void main() {
           ),
         ),
         // Estado global de conectividad Online/Offline (CU-43, PT-06).
-        // El Sprint 4 (CU-44) lo escuchará para despertar la sincronización.
         BlocProvider<ConnectivityCubit>(
           create: (context) => ConnectivityCubit(
             monitor: buildProductionMonitor(dioClient.dio),
           )..start(),
+        ),
+        // Estado global de sincronización (CU-48/CU-49): se despierta con
+        // las transiciones a online del CU-43 y expone el panel de estado.
+        BlocProvider<SyncStatusCubit>(
+          create: (context) {
+            final cubit = SyncStatusCubit(
+              engine: syncEngine,
+              isOnline: () =>
+                  context.read<ConnectivityCubit>().state ==
+                  ConnectivityStatus.online,
+            );
+            cubit.listenOnline(
+              context.read<ConnectivityCubit>().stream
+                  .map((s) => s == ConnectivityStatus.online)
+                  .where((online) => online),
+            );
+            cubit.refresh();
+            return cubit;
+          },
         ),
       ],
       child: const ConstructINGApp(),

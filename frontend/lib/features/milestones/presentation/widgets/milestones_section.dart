@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/storage/local_database.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../evidence/presentation/screens/capture_flow_screen.dart';
+import '../../../evidence/presentation/screens/evidence_gallery_screen.dart';
 import '../../data/datasources/estimated_end_writer.dart';
 import '../../data/datasources/milestone_local_data_source.dart';
 import '../../domain/entities/milestone.dart';
@@ -50,6 +52,11 @@ class MilestonesSection extends StatelessWidget {
   final String? propietarioEmail;
   final String? propietarioNombre;
 
+  /// Coordenadas ancla de la obra (CU-15) para el guard de cercanía del
+  /// CU-35. La ficha técnica las provee desde la obra.
+  final double? obraLatitud;
+  final double? obraLongitud;
+
   /// Notificador inyectable (tests); por defecto traza de consola.
   final MilestoneOwnerNotifier? ownerNotifier;
 
@@ -62,6 +69,8 @@ class MilestonesSection extends StatelessWidget {
     this.obraFechaInicio,
     this.propietarioEmail,
     this.propietarioNombre,
+    this.obraLatitud,
+    this.obraLongitud,
     this.ownerNotifier,
   });
 
@@ -237,6 +246,12 @@ class MilestonesSection extends StatelessWidget {
                               allMilestones: state.milestones,
                               allEdges: state.edges,
                             ),
+                            onCaptureEvidence: isProfesional
+                                ? () => _openCaptureFlow(
+                                    context, indexed[i].value)
+                                : null,
+                            onViewEvidence: () => _openEvidenceGallery(
+                                context, indexed[i].value),
                           ),
                         ),
                     ],
@@ -342,6 +357,33 @@ class MilestonesSection extends StatelessWidget {
           hito: milestone,
           milestones: allMilestones,
           allEdges: allEdges,
+        ),
+      ),
+    );
+  }
+
+  /// CU-31: abre el entorno de captura aislado para el hito (RF_03).
+  /// Lleva el ancla geográfica de la obra para el guard CU-35.
+  void _openCaptureFlow(BuildContext context, Milestone milestone) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CaptureFlowScreen(
+          hito: milestone,
+          obraId: obraId,
+          obraLatitud: obraLatitud,
+          obraLongitud: obraLongitud,
+        ),
+      ),
+    );
+  }
+
+  /// CU-40: abre la galería de evidencias del hito y su mapa.
+  void _openEvidenceGallery(BuildContext context, Milestone milestone) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EvidenceGalleryScreen(
+          hitoId: milestone.id,
+          hitoNombre: milestone.nombre,
         ),
       ),
     );
@@ -503,6 +545,8 @@ class _MilestoneTile extends StatelessWidget {
   final VoidCallback? onAdvance;
   final VoidCallback? onDelete;
   final VoidCallback onDependencies;
+  final VoidCallback? onCaptureEvidence;
+  final VoidCallback onViewEvidence;
 
   /// Etiqueta de secuencia del roadmap ("HITO 1 DE 3").
   final String? sequenceLabel;
@@ -520,7 +564,9 @@ class _MilestoneTile extends StatelessWidget {
     required this.onAdvance,
     required this.onDelete,
     required this.onDependencies,
+    required this.onViewEvidence,
     required this.scheduleView,
+    this.onCaptureEvidence,
     this.sequenceLabel,
   });
 
@@ -552,11 +598,6 @@ class _MilestoneTile extends StatelessWidget {
     final predecessorNames = (allEdges[milestone.id] ?? {})
         .map((id) => names[id] ?? '¿?')
         .toList();
-    // CU-24 precondición: se necesitan al menos dos hitos para vincular.
-    final canLink =
-        isProfesional && allMilestones.length >= 2 && milestone.estado != MilestoneStatus.certificado;
-    final canEdit =
-        isProfesional && milestone.estado == MilestoneStatus.pendiente;
 
     return Container(
       decoration: BoxDecoration(
@@ -644,51 +685,81 @@ class _MilestoneTile extends StatelessWidget {
               ),
           ],
         ),
-        trailing: (canLink || canEdit || (isProfesional && onAdvance != null))
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (canLink)
-                    IconButton(
-                      tooltip: 'Agregar predecesor',
-                      icon: const Icon(Icons.link_outlined,
-                          color: AppTheme.lightBlue),
-                      onPressed: onDependencies,
-                    ),
-                  if (canEdit)
-                    IconButton(
-                      tooltip: 'Editar hito',
-                      icon: const Icon(Icons.edit_outlined,
-                          color: AppTheme.accentGold),
-                      onPressed: onEdit,
-                    ),
-                  // CU-26 paso 1: avanza a la siguiente fase (solo Profesional
-                  // y solo si hay fase siguiente; los certificados no avanzan).
-                  if (isProfesional && onAdvance != null)
-                    IconButton(
-                      tooltip: milestone.estado == MilestoneStatus.pendiente
-                          ? 'Iniciar hito'
-                          : 'Certificar hito',
-                      icon: Icon(
-                        milestone.estado == MilestoneStatus.pendiente
-                            ? Icons.play_arrow_outlined
-                            : Icons.check_circle_outline,
-                        color: Colors.greenAccent,
-                      ),
-                      onPressed: onAdvance,
-                    ),
-                  // CU-27 paso 1: solo hitos Pendiente (sin progreso).
-                  if (isProfesional && onDelete != null)
-                    IconButton(
-                      tooltip: 'Eliminar hito',
-                      icon: const Icon(Icons.delete_outline,
-                          color: AppTheme.primaryRed),
-                      onPressed: onDelete,
-                    ),
-                ],
-              )
-            : null,
+        trailing: _trailing(),
       ),
     );
   }
+
+  Widget? _trailingRow(List<Widget> actions) =>
+      actions.isEmpty ? null : Row(mainAxisSize: MainAxisSize.min, children: actions);
+
+  List<Widget> _trailingActions() {
+    // CU-24 precondición: se necesitan al menos dos hitos para vincular.
+    final canLink = isProfesional &&
+        allMilestones.length >= 2 &&
+        milestone.estado != MilestoneStatus.certificado;
+    final canEdit =
+        isProfesional && milestone.estado == MilestoneStatus.pendiente;
+
+    final actions = <Widget>[
+      // CU-40 paso 1: galería de evidencias + mapa de relevamiento del hito.
+      IconButton(
+        tooltip: 'Ver evidencias y mapa',
+        icon: const Icon(Icons.photo_library_outlined,
+            color: AppTheme.lightBlue),
+        onPressed: onViewEvidence,
+      ),
+    ];
+    // CU-31: registrar evidencia in situ (solo Profesional, RF_03).
+    if (isProfesional && onCaptureEvidence != null) {
+      actions.add(IconButton(
+        tooltip: 'Registrar evidencia',
+        icon: const Icon(Icons.photo_camera_outlined,
+            color: AppTheme.accentGold),
+        onPressed: onCaptureEvidence,
+      ));
+    }
+    if (canLink) {
+      actions.add(IconButton(
+        tooltip: 'Agregar predecesor',
+        icon: const Icon(Icons.link_outlined, color: AppTheme.lightBlue),
+        onPressed: onDependencies,
+      ));
+    }
+    if (canEdit) {
+      actions.add(IconButton(
+        tooltip: 'Editar hito',
+        icon: const Icon(Icons.edit_outlined, color: AppTheme.accentGold),
+        onPressed: onEdit,
+      ));
+    }
+    // CU-26 paso 1: avanza a la siguiente fase (solo Profesional y solo si
+    // hay fase siguiente; los certificados no avanzan).
+    if (isProfesional && onAdvance != null) {
+      actions.add(IconButton(
+        tooltip: milestone.estado == MilestoneStatus.pendiente
+            ? 'Iniciar hito'
+            : 'Certificar hito',
+        icon: Icon(
+          milestone.estado == MilestoneStatus.pendiente
+              ? Icons.play_arrow_outlined
+              : Icons.check_circle_outline,
+          color: Colors.greenAccent,
+        ),
+        onPressed: onAdvance,
+      ));
+    }
+    // CU-27 paso 1: solo hitos Pendiente (sin progreso).
+    if (isProfesional && onDelete != null) {
+      actions.add(IconButton(
+        tooltip: 'Eliminar hito',
+        icon: const Icon(Icons.delete_outline, color: AppTheme.primaryRed),
+        onPressed: onDelete,
+      ));
+    }
+    return actions;
+  }
+
+  Widget? _trailing() => _trailingRow(_trailingActions());
 }
+

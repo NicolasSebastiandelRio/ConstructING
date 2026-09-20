@@ -6,6 +6,7 @@ import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_event.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../auth/presentation/screens/welcome_screen.dart';
+import '../../../sync/presentation/widgets/sync_indicator.dart';
 import '../../domain/entities/work_entity.dart';
 import '../blocs/works_bloc.dart';
 import '../blocs/works_event.dart';
@@ -68,6 +69,10 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
           ),
           backgroundColor: AppTheme.darkSurface,
           actions: [
+            // CU-48: indicador global de estado de sincronización (ícono de
+            // nube) + panel con el detalle exacto y "Sincronizar Ahora"
+            // (CU-49).
+            const SyncIndicator(),
             IconButton(
               icon: const Icon(Icons.notifications_outlined, color: AppTheme.accentGold),
               onPressed: () {

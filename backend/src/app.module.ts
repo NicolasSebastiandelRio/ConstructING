@@ -5,10 +5,13 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { WorksModule } from './works/works.module';
-import { AuthModule } from './auth/auth.module'; // <- Importar AuthModule  
+import { AuthModule } from './auth/auth.module'; // <- Importar AuthModule
+import { SyncModule } from './sync/sync.module';
 import { UserEntity } from './auth/user.entity';
 import { WorkEntity } from './works/entities/work.entity';
 import { WorkInvitationEntity } from './works/entities/work-invitation.entity';
+import { MilestoneSyncEntity } from './sync/milestone-sync.entity';
+import { EvidenceSyncEntity } from './sync/evidence-sync.entity';
 
 @Module({
   imports: [
@@ -26,7 +29,7 @@ import { WorkInvitationEntity } from './works/entities/work-invitation.entity';
           return {
             type: 'better-sqlite3', // <- Usamos el driver oficial soportado por TypeORM 0.3.x
             database: ':memory:',
-            entities: [UserEntity, WorkEntity, WorkInvitationEntity],
+            entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity],
             synchronize: true,
             dropSchema: true,
           };
@@ -41,7 +44,7 @@ import { WorkInvitationEntity } from './works/entities/work-invitation.entity';
           username: configService.get<string>('DB_USER', 'postgres'),
           password: configService.get<string>('DB_PASSWORD', 'postgres'),
           database: configService.get<string>('DB_NAME', 'constructingsal'),
-          entities: [UserEntity, WorkEntity, WorkInvitationEntity],
+          entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity],
           synchronize: true,
           ssl:
             configService.get<string>('DB_SSL', 'false') === 'true'
@@ -53,6 +56,7 @@ import { WorkInvitationEntity } from './works/entities/work-invitation.entity';
     UsersModule,
     WorksModule,
     AuthModule,
+    SyncModule,
   ],
   controllers: [AppController],
   providers: [AppService],

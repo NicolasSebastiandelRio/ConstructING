@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:constructing_mobile/core/storage/local_database.dart';
+import 'package:constructing_mobile/features/evidence/data/datasources/evidence_local_data_source.dart';
 import 'package:constructing_mobile/features/milestones/data/datasources/milestone_local_data_source.dart';
 import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
 
@@ -30,6 +31,24 @@ Future<MilestoneLocalDataSource> openTestDao(String prefix) async {
     if (await file.exists()) await file.delete();
   });
   return MilestoneLocalDataSource(localDatabase: localDb);
+}
+
+/// DAO de evidencias sobre BD temporal aislada (ffi) para tests planos.
+Future<EvidenceLocalDataSource> openEvidenceDao(String prefix) async {
+  sqfliteFfiInit();
+  final localDb = LocalDatabase();
+  final path =
+      '${Directory.systemTemp.path}/ev_${prefix}_${_dbCounter++}_${DateTime.now().microsecondsSinceEpoch}.db';
+  await localDb.openLocalDatabase(
+    factoryOverride: databaseFactoryFfiNoIsolate,
+    nameOverride: path,
+  );
+  addTearDown(() async {
+    await localDb.close();
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+  });
+  return EvidenceLocalDataSource(localDatabase: localDb);
 }
 
 /// DAO fake en memoria para widget tests (sin FFI: abrir BD real dentro de
@@ -140,6 +159,35 @@ class FakeMilestoneDao implements MilestoneLocalDataSource {
           milestone.copyWith(esCritico: criticalIds.contains(milestone.id));
     }
   }
+
+  @override
+  Future<List<Milestone>> listPendingSync() async =>
+      _store.values.where((m) => !m.esSincronizado).toList();
+
+  @override
+  Future<void> markSynced(String id) async {
+    final current = _store[id];
+    if (current != null) {
+      _store[id] = current.copyWith(esSincronizado: true);
+    }
+  }
+
+  @override
+  Future<void> applyServerVerdict({
+    required String id,
+    required String estado,
+  }) async {
+    final current = _store[id];
+    if (current != null) {
+      _store[id] = current.copyWith(
+        estado: MilestoneStatus.fromLabel(estado),
+      );
+    }
+  }
+
+  @override
+  Future<String?> updatedAtOf(String id) async =>
+      _store[id] != null ? DateTime.now().toIso8601String() : null;
 
   @override
   Future<Map<String, Set<String>>> dependencyMap(String obraId) async {
