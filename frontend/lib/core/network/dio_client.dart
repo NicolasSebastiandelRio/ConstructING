@@ -5,7 +5,15 @@ class DioClient {
   late final Dio _dio;
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
-  static const String baseUrl = 'http://localhost:3000';
+  /// URL del backend. Inyectable por entorno para probar desde un
+  /// dispositivo físico:
+  /// - Android emulador:  10.0.2.2 apunta al localhost de la PC.
+  /// - Teléfono real:     IP LAN de la PC (misma WiFi).
+  ///   Ej.: flutter run --dart-define=API_BASE_URL=http://192.168.1.50:3000
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://localhost:3000',
+  );
 
   DioClient() {
     _dio = Dio(

@@ -1,5 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Red: el modo release no hereda el permiso de debug/profile (CU-05/44). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- CU-34 (RF_04): permisos del sensor GPS para la evidencia pericial
+         georreferenciada (geolocator los exige en el manifest). -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- CU-44: la API del backend en desarrollo viaja por HTTP en la red
+         local (http://<IP-PC>:3000); en producción iría por HTTPS.
+         image_picker usa la app de cámara del sistema (intent), por lo que
+         no requiere permiso CAMERA propio (entorno aislado, CU-37). -->
     <application
+        android:usesCleartextTraffic="true"
         android:label="constructing_mobile"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
