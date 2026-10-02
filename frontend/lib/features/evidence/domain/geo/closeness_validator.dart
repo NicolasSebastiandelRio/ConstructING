@@ -24,8 +24,10 @@ class DistanceCheck {
 /// Fórmula de Haversine (paso 2), y verifica que sea menor al radio
 /// perimetral (paso 4).
 ///
-/// Sin ancla de obra registrada la validación falla cerrado (no hay fehaica
-/// geográfica confirmable).
+/// Ajuste Sprint 4: la captura fuera del radio NO se aborta más. La
+/// evidencia se guarda con el flag `fueraDeObra` y la UI estampa una
+/// etiqueta roja permanente sobre la imagen, de modo que el revisor vea al
+/// instante que la referencia no coincide con la obra.
 class ClosenessValidator {
   /// Radio perimetral por defecto: margen de error admitido para la
   /// captura dentro del terreno oficial.
@@ -34,6 +36,11 @@ class ClosenessValidator {
   /// Mensaje exacto del Alt. 4.2 de la especificación.
   static const String outsideMessage =
       'Se encuentra fuera de los límites de la obra';
+
+  /// Etiqueta visible sobre la imagen/video cuando su ubicación no coincide
+  /// con el ancla de la obra (CU-35 soft-fail, Sprint 4).
+  static const String mismatchLabel =
+      'IMAGEN NO COINCIDENTE CON LA UBICACIÓN DE LA OBRA';
 
   /// Fórmula de Haversine (paso 2): distancia esférica en metros entre
   /// dos pares lat/long en grados.

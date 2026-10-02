@@ -9,7 +9,10 @@ import {
   UploadedFile,
   HttpCode,
   BadRequestException,
+  Res,
+  StreamableFile,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MilestoneSyncService, MilestoneSyncPayload } from './milestone-sync.service';
 import {
@@ -65,6 +68,20 @@ export class SyncController {
     return this.evidenceSync.receivedBytes(id).then((bytes) => ({ id, bytes }));
   }
 
+  /** Sprint 4: descarga del binario sincronizado (preview del visor). */
+  @Get('evidences/:id/file')
+  async downloadEvidence(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const file = await this.evidenceSync.loadFile(id);
+    res.set({
+      'Content-Type': file.contentType,
+      'Content-Disposition': `inline; filename="${file.filename}"`,
+    });
+    return new StreamableFile(file.buffer);
+  }
+
   /** CU-46 pasos 3-4: transmite únicamente el bloque restante (base64). */
   @Patch('evidences/:id/chunk')
   @HttpCode(200)
@@ -105,6 +122,7 @@ export class SyncController {
       tamanoBytes: Number(body.tamanoBytes ?? 0),
       checksum: String(body.checksum).toUpperCase(),
       marcaTexto: body.marcaTexto ?? '',
+      fueraObra: String(body.fueraObra) === 'true',
     };
   }
 }

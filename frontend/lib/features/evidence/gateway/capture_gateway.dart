@@ -1,6 +1,10 @@
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 
 import '../domain/entities/evidence.dart';
+import 'persist_final.dart';
 
 /// Excepción de captura (CU-31 Alt. 2.2): permiso de cámara denegado.
 class CameraPermissionException implements Exception {
@@ -30,6 +34,21 @@ abstract class CaptureGateway {
   /// memoria del CU-36/CU-41).
   Future<List<int>> readBytes(String path);
 
+  /// Sprint 4 (CU-45): persiste los bytes definitivos de la evidencia (con
+  /// la marca ya estampada) como archivo del caché local y devuelve la ruta
+  /// vigente. Obligatorio porque el checksum declarado se calcula sobre
+  /// estos bytes: si se sincronizara el archivo temporal del picker (sin
+  /// estampar) el servidor detectaría divergencia CU-45 y la evidencia
+  /// quedaría pendiente para siempre.
+  ///
+  /// Web: regenera una `blob:` URL nueva (los blobs del picker viven solo
+  /// durante la sesión). Móvil/desktop: escribe un archivo hermano del
+  /// temporal del picker (mismo directorio de caché de la app).
+  Future<String> persistFinal(
+    List<int> bytes, {
+    required String originalPath,
+  });
+
   /// CU-44 paso 4: libera el archivo temporal una vez sincronizado.
   Future<void> releaseTempFile(String path);
 }
@@ -49,11 +68,13 @@ class LiveCaptureGateway implements CaptureGateway {
     final XFile? file;
     try {
       if (tipo == EvidenceType.video) {
-        // CU-33/RNF_E_06 + CU-38: la grabación nativa nace acotada a 30 s
-        // (prevención del límite de duración).
+        // CU-33/RNF_E_06 + CU-38: la grabación nativa nace acotada por
+        // debajo del límite de 30 s — 25 s de margen de seguridad porque el
+        // OS redondea hacia arriba y el validador CU-38 rechaza >= 30.0 s
+        // precisos (edge case que rechazaría videos al límite).
         file = await picker.pickVideo(
           source: ImageSource.camera,
-          maxDuration: const Duration(seconds: 30),
+          maxDuration: const Duration(seconds: 25),
         );
       } else {
         // CU-32: fotograma del avance en el lugar de la obra.
@@ -80,6 +101,21 @@ class LiveCaptureGateway implements CaptureGateway {
   Future<List<int>> readBytes(String path) async {
     final file = XFile(path);
     return file.readAsBytes();
+  }
+
+  @override
+  Future<String> persistFinal(
+    List<int> bytes, {
+    required String originalPath,
+  }) async {
+    if (kIsWeb) {
+      // Web: regenera una blob: URL con los bytes estampados (dart:ui no
+      // puede escribir al disco del navegador).
+      return createBlobUrlFromBytes(Uint8List.fromList(bytes));
+    }
+    // Móvil/desktop: archivo hermano del temporal del picker (el directorio
+    // es el caché privado de la app, siempre escribible).
+    return writeSiblingFile(Uint8List.fromList(bytes), originalPath);
   }
 
   @override

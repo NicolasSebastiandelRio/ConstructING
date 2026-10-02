@@ -1,4 +1,5 @@
-﻿import 'dart:typed_data';
+﻿import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -10,13 +11,19 @@ import 'package:constructing_mobile/features/evidence/presentation/bloc/capture_
 import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
 import 'milestones_test_helpers.dart';
 
+/// PNG 1x1 válido: permite que el estampado CU-36 tenga éxito en tests y
+/// que se ejecute el persistFinal (CU-45 Sprint 4).
+const pngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
 /// Fakes de hardware para el flujo de captura (cámara aislada CU-37 y
 /// GPS CU-34).
 class FakeCaptureGateway implements CaptureGateway {
-  FakeCaptureGateway({this.onCapture, this.bytes});
+  FakeCaptureGateway({this.onCapture, Uint8List? bytes})
+      : _bytes = bytes;
 
   final Future<String> Function(EvidenceType tipo)? onCapture;
-  final Uint8List Function()? bytes;
+  final Uint8List? _bytes;
 
   @override
   Future<String> capture({required EvidenceType tipo}) async {
@@ -26,7 +33,21 @@ class FakeCaptureGateway implements CaptureGateway {
 
   @override
   Future<List<int>> readBytes(String path) async =>
-      bytes?.call() ?? Uint8List.fromList([9, 9, 9]);
+      _bytes ?? Uint8List.fromList(base64Decode(pngBase64));
+
+  final List<String> persistedPaths = [];
+
+  @override
+  Future<String> persistFinal(
+    List<int> bytes, {
+    required String originalPath,
+  }) async {
+    // Simula el persist de los bytes estampados: la "ruta" nueva describe
+    // los bytes recibidos (verificación de coherencia CU-45).
+    final fake = 'blob://local/persisted/${persistedPaths.length}';
+    persistedPaths.add(fake);
+    return fake;
+  }
 
   @override
   Future<void> releaseTempFile(String path) async {}
@@ -44,6 +65,13 @@ class DeniedCaptureGateway implements CaptureGateway {
 
   @override
   Future<List<int>> readBytes(String path) async => [];
+
+  @override
+  Future<String> persistFinal(
+    List<int> bytes, {
+    required String originalPath,
+  }) async =>
+      originalPath;
 
   @override
   Future<void> releaseTempFile(String path) async {}
@@ -81,6 +109,7 @@ void main() {
   Future<(CaptureFlowBloc, EvidenceLocalDataSource)> buildBloc({
     CaptureGateway? captureGateway,
     LocationGateway? locationGateway,
+    double Function()? videoDuration,
   }) async {
     final dao = await openEvidenceDao('capture');
     final bloc = CaptureFlowBloc(
@@ -98,10 +127,37 @@ void main() {
       obraId: 'w1',
       obraLatitud: anclaLat,
       obraLongitud: anclaLon,
+      videoDurationReader: videoDuration != null
+          ? (_) async => videoDuration()
+          : (_) async => null,
     );
     addTearDown(bloc.close);
     return (bloc, dao);
   }
+
+  test(
+      'CU-36/CU-45 (Sprint 4): la foto guardada es el archivo ESTAMPADO, no el '
+      'temporal del picker (evita divergencia de checksum en la sync)',
+      () async {
+    final (bloc, dao) = await buildBloc();
+    bloc.add(CapturePhotoRequested());
+    await expectLater(
+      bloc.stream,
+      emitsInOrder([isA<CaptureFlowProcessing>(), isA<CaptureFlowPreview>()]),
+    );
+
+    bloc.add(EvidenceSaveRequested());
+    await expectLater(
+      bloc.stream,
+      emitsInOrder([isA<CaptureFlowProcessing>(), isA<CaptureFlowSaved>()]),
+    );
+
+    final evidences = await dao.listByHito('h1');
+    // El archivo persistido describe los bytes estampados sobre los que se
+    // calculó el checksum (sin esto, CU-45 da "corrupted" en bucle).
+    expect(evidences.single.archivo, startsWith('blob://local/persisted'));
+    expect(evidences.single.archivo, isNot('blob://local/fake'));
+  });
 
   test('CU-31 Alt. 2.1/2.2: permiso de cámara denegado → alerta exacta',
       () async {
@@ -146,9 +202,10 @@ void main() {
     await expectation;
   });
 
-  test('CU-35 Alt. 4.2: fuera de los límites de la obra aborta el guardado',
-      () async {
-    final (bloc, _) = await buildBloc(
+  test(
+      'CU-35 soft-fail (Sprint 4): fuera de los límites NO aborta; el borrador '
+      'queda marcado fueraDeObra y se guarda con el flag', () async {
+    final (bloc, dao) = await buildBloc(
       locationGateway: FakeLocationGateway(
         position: DevicePosition(
           latitud: -35.0,
@@ -161,15 +218,97 @@ void main() {
       bloc.stream,
       emitsInOrder([
         isA<CaptureFlowProcessing>(),
-        isA<CaptureFlowFailure>().having(
-          (s) => s.message,
-          'message',
-          'Se encuentra fuera de los límites de la obra',
+        isA<CaptureFlowPreview>().having(
+          (s) => s.draft.fueraDeObra,
+          'fueraDeObra',
+          isTrue,
         ),
       ]),
     );
     bloc.add(CapturePhotoRequested());
     await expectation;
+
+    // El guardado continúa pese a la no coincidencia de ubicación.
+    final saved = expectLater(
+      bloc.stream,
+      emitsInOrder([isA<CaptureFlowProcessing>(), isA<CaptureFlowSaved>()]),
+    );
+    bloc.add(EvidenceSaveRequested());
+    await saved;
+
+    final evidences = await dao.listByHito('h1');
+    expect(evidences.single.fueraDeObra, isTrue);
+  });
+
+  test(
+      'CU-35 flujo normal: captura dentro del radio queda sin flag '
+      'fueraDeObra', () async {
+    final (bloc, dao) = await buildBloc();
+    bloc.add(CapturePhotoRequested());
+    await expectLater(
+      bloc.stream,
+      emitsInOrder([
+        isA<CaptureFlowProcessing>(),
+        isA<CaptureFlowPreview>().having(
+          (s) => s.draft.fueraDeObra,
+          'fueraDeObra',
+          isFalse,
+        ),
+      ]),
+    );
+
+    bloc.add(EvidenceSaveRequested());
+    await expectLater(
+      bloc.stream,
+      emitsInOrder([isA<CaptureFlowProcessing>(), isA<CaptureFlowSaved>()]),
+    );
+
+    final evidences = await dao.listByHito('h1');
+    expect(evidences.single.fueraDeObra, isFalse);
+  });
+
+  test(
+      'CU-35 soft-fail sin ancla de obra (CU-15 sin coordenadas): también '
+      'queda etiquetada y se guarda', () async {
+    final dao = await openEvidenceDao('capture_no_anchor');
+    final bloc = CaptureFlowBloc(
+      captureGateway: FakeCaptureGateway(),
+      locationGateway: FakeLocationGateway(
+        position: const DevicePosition(
+          latitud: anclaLat,
+          longitud: anclaLon,
+          precisionMetros: 5,
+        ),
+      ),
+      evidences: dao,
+      hito: hito,
+      obraId: 'w1',
+      obraLatitud: null, // obra sin ancla geográfica
+      obraLongitud: null,
+    );
+    addTearDown(bloc.close);
+
+    bloc.add(CapturePhotoRequested());
+    await expectLater(
+      bloc.stream,
+      emitsInOrder([
+        isA<CaptureFlowProcessing>(),
+        isA<CaptureFlowPreview>().having(
+          (s) => s.draft.fueraDeObra,
+          'fueraDeObra',
+          isTrue,
+        ),
+      ]),
+    );
+
+    bloc.add(EvidenceSaveRequested());
+    await expectLater(
+      bloc.stream,
+      emitsInOrder([isA<CaptureFlowProcessing>(), isA<CaptureFlowSaved>()]),
+    );
+
+    final evidences = await dao.listByHito('h1');
+    expect(evidences.single.fueraDeObra, isTrue);
   });
 
   test(
@@ -211,7 +350,9 @@ void main() {
   });
 
   test('CU-33/CU-38: video corto capturado y guardado en caché', () async {
-    final (bloc, dao) = await buildBloc();
+    final (bloc, dao) = await buildBloc(
+      videoDuration: () => 20.0,
+    );
     final expectation = expectLater(
       bloc.stream,
       emitsInOrder([
@@ -231,7 +372,31 @@ void main() {
 
     final evidences = await dao.listByHito('h1');
     expect(evidences.single.tipo, EvidenceType.video);
+    expect(evidences.single.duracionSeg, 20.0); // CU-38: metadato real persistido.
     expect(evidences.single.esSincronizado, isFalse);
+  });
+
+  test('CU-38 Alt. 4.2: video que supera 30 s → alerta exacta sin guardar',
+      () async {
+    final (bloc, dao) = await buildBloc(
+      videoDuration: () => 40.0,
+    );
+    final expectation = expectLater(
+      bloc.stream,
+      emitsInOrder([
+        isA<CaptureFlowProcessing>(),
+        isA<CaptureFlowFailure>().having(
+          (s) => s.message,
+          'message',
+          'El video supera los 30 segundos o 15 MB permitidos',
+        ),
+      ]),
+    );
+    bloc.add(RecordVideoRequested());
+    await expectation;
+
+    // Poscondición Alt.: no queda registro persistido.
+    expect(await dao.listByHito('h1'), isEmpty);
   });
 
   test('CU-41: descartar limpia el buffer y retorna a la vista en vivo',

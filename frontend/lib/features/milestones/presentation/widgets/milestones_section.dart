@@ -377,13 +377,16 @@ class MilestonesSection extends StatelessWidget {
     );
   }
 
-  /// CU-40: abre la galería de evidencias del hito y su mapa.
+  /// CU-40: abre la galería de evidencias del hito y su mapa (el mapa se
+  /// referencia al ancla de la obra, CU-15).
   void _openEvidenceGallery(BuildContext context, Milestone milestone) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => EvidenceGalleryScreen(
           hitoId: milestone.id,
           hitoNombre: milestone.nombre,
+          obraLatitud: obraLatitud,
+          obraLongitud: obraLongitud,
         ),
       ),
     );
@@ -598,100 +601,111 @@ class _MilestoneTile extends StatelessWidget {
     final predecessorNames = (allEdges[milestone.id] ?? {})
         .map((id) => names[id] ?? '¿?')
         .toList();
+    final actions = _trailingActions();
 
     return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
       decoration: BoxDecoration(
         color: AppTheme.darkSurface,
         borderRadius: BorderRadius.circular(12),
         border:
             Border.all(color: AppTheme.accentGold.withValues(alpha: 0.3)),
       ),
-      child: ListTile(
-        leading: Icon(_statusIcon(milestone.estado),
-            color: _statusColor(milestone.estado)),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(milestone.nombre,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14)),
-            ),
-            // CU-29 poscondición: los hitos críticos quedan resaltados.
-            if (milestone.esCritico)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryRed,
-                  borderRadius: BorderRadius.circular(6),
+      // ListTile reemplazado por layout propio (Sprint 4): el `trailing`
+      // del ListTile desbordaba con 5+ acciones en pantallas angostas
+      // (assert "Trailing widget consumes the entire tile width" → pantalla
+      // negra al abrir la ficha). Los actions van ahora en un Wrap abajo.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(_statusIcon(milestone.estado),
+                  color: _statusColor(milestone.estado)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(milestone.nombre,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14)),
+              ),
+              // CU-29 poscondición: los hitos críticos quedan resaltados.
+              if (milestone.esCritico)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryRed,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'CRÍTICA',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold),
+                  ),
                 ),
-                child: const Text(
-                  'CRÍTICA',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold),
-                ),
-              ),
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (sequenceLabel != null)
-              Text(
-                sequenceLabel!,
-                style: const TextStyle(
-                    color: AppTheme.accentGold, fontSize: 10),
-              ),
-            if (milestone.descripcion != null &&
-                milestone.descripcion!.trim().isNotEmpty)
-              Text(
-                milestone.descripcion!,
-                style:
-                    const TextStyle(color: Colors.white70, fontSize: 12),
-              ),
-            Text(
-              '${milestone.duracionDias} días · ${milestone.estado.label}',
-              style: const TextStyle(color: Colors.white54, fontSize: 12),
-            ),
-            // Roadmap: rango de fechas y días restantes (CU-29 display).
-            // La fecha de fin estimada = inicio del hito + duración, en
-            // formato legible DD/MM/AAAA. Los restantes bajan con el tiempo.
-            if (scheduleView != null) ...[
-              Text(
-                '${MilestoneScheduleView.format(scheduleView!.startDate)} → ${MilestoneScheduleView.format(scheduleView!.endDate)}',
-                style: const TextStyle(
-                    color: AppTheme.lightBlue, fontSize: 12),
-              ),
-              Text(
-                'Fin estimado: ${MilestoneScheduleView.format(scheduleView!.endDate)}',
-                style: const TextStyle(
-                    color: AppTheme.lightBlue, fontSize: 12),
-              ),
-              Text(
-                'Quedan ${scheduleView!.remainingDays} días',
-                style: const TextStyle(
-                    color: Colors.white54, fontSize: 11),
-              ),
             ],
-            if (predecessorNames.isNotEmpty)
-              Text(
-                'Depende de: ${predecessorNames.join(', ')}',
-                style: const TextStyle(
-                    color: AppTheme.lightBlue, fontSize: 11),
-              ),
+          ),
+          const SizedBox(height: 6),
+          if (sequenceLabel != null)
+            Text(
+              sequenceLabel!,
+              style: const TextStyle(
+                  color: AppTheme.accentGold, fontSize: 10),
+            ),
+          if (milestone.descripcion != null &&
+              milestone.descripcion!.trim().isNotEmpty)
+            Text(
+              milestone.descripcion!,
+              style:
+                  const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          Text(
+            '${milestone.duracionDias} días · ${milestone.estado.label}',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          // Roadmap: rango de fechas y días restantes (CU-29 display).
+          // La fecha de fin estimada = inicio del hito + duración, en
+          // formato legible DD/MM/AAAA. Los restantes bajan con el tiempo.
+          if (scheduleView != null) ...[
+            Text(
+              '${MilestoneScheduleView.format(scheduleView!.startDate)} → ${MilestoneScheduleView.format(scheduleView!.endDate)}',
+              style: const TextStyle(
+                  color: AppTheme.lightBlue, fontSize: 12),
+            ),
+            Text(
+              'Fin estimado: ${MilestoneScheduleView.format(scheduleView!.endDate)}',
+              style: const TextStyle(
+                  color: AppTheme.lightBlue, fontSize: 12),
+            ),
+            Text(
+              'Quedan ${scheduleView!.remainingDays} días',
+              style: const TextStyle(
+                  color: Colors.white54, fontSize: 11),
+            ),
           ],
-        ),
-        trailing: _trailing(),
+          if (predecessorNames.isNotEmpty)
+            Text(
+              'Depende de: ${predecessorNames.join(', ')}',
+              style: const TextStyle(
+                  color: AppTheme.lightBlue, fontSize: 11),
+            ),
+          if (actions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                children: actions,
+              ),
+            ),
+        ],
       ),
     );
   }
-
-  Widget? _trailingRow(List<Widget> actions) =>
-      actions.isEmpty ? null : Row(mainAxisSize: MainAxisSize.min, children: actions);
 
   List<Widget> _trailingActions() {
     // CU-24 precondición: se necesitan al menos dos hitos para vincular.
@@ -759,7 +773,5 @@ class _MilestoneTile extends StatelessWidget {
     }
     return actions;
   }
-
-  Widget? _trailing() => _trailingRow(_trailingActions());
 }
 

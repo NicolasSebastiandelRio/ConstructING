@@ -56,6 +56,11 @@ class Evidence extends Equatable {
   /// Marca pericial estampada (texto compuesto por CU-36).
   final String marcaTexto;
 
+  /// CU-35 soft-fail (Sprint 4): true si la captura quedó fuera del radio
+  /// perimetral de la obra (o sin ancla comparable). La UI estampa la
+  /// etiqueta roja de no coincidencia sobre la imagen/video.
+  final bool fueraDeObra;
+
   final bool esSincronizado;
 
   const Evidence({
@@ -73,6 +78,7 @@ class Evidence extends Equatable {
     required this.tamanoBytes,
     required this.checksum,
     required this.marcaTexto,
+    this.fueraDeObra = false,
     this.esSincronizado = false,
   });
 
@@ -94,6 +100,7 @@ class Evidence extends Equatable {
       'tamano_bytes': tamanoBytes,
       'checksum': checksum,
       'marca_texto': marcaTexto,
+      'fuera_obra': fueraDeObra ? 1 : 0,
       'es_sincronizado': esSincronizado ? 1 : 0,
       'created_at': nowIso,
       'updated_at': nowIso,
@@ -118,6 +125,7 @@ class Evidence extends Equatable {
       tamanoBytes: (row['tamano_bytes'] as num? ?? 0).toInt(),
       checksum: (row['checksum'] as String?) ?? '',
       marcaTexto: (row['marca_texto'] as String?) ?? '',
+      fueraDeObra: (row['fuera_obra'] as num? ?? 0) == 1,
       esSincronizado: (row['es_sincronizado'] as num? ?? 0) == 1,
     );
   }
@@ -125,6 +133,7 @@ class Evidence extends Equatable {
   Evidence copyWith({
     String? archivo,
     String? nota,
+    bool? fueraDeObra,
     bool? esSincronizado,
   }) {
     return Evidence(
@@ -142,6 +151,7 @@ class Evidence extends Equatable {
       tamanoBytes: tamanoBytes,
       checksum: checksum,
       marcaTexto: marcaTexto,
+      fueraDeObra: fueraDeObra ?? this.fueraDeObra,
       esSincronizado: esSincronizado ?? this.esSincronizado,
     );
   }
@@ -162,6 +172,7 @@ class Evidence extends Equatable {
         tamanoBytes,
         checksum,
         marcaTexto,
+        fueraDeObra,
         esSincronizado,
       ];
 }

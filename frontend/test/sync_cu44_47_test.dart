@@ -1,4 +1,7 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+﻿import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:constructing_mobile/features/evidence/domain/checksum/evidence_checksum.dart';
 import 'package:constructing_mobile/features/evidence/domain/entities/evidence.dart';
 import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
 import 'package:constructing_mobile/features/sync/data/datasources/sync_remote_data_source.dart';
@@ -186,6 +189,7 @@ void main() {
       tamanoBytes: 3,
       checksum: 'DEF',
       marcaTexto: 'm',
+      fueraDeObra: true, // CU-35 soft-fail (Sprint 4).
     );
 
     final sizes = <int>[];
@@ -206,5 +210,85 @@ void main() {
 
     expect(result.evidenciasSubidas, 1);
     expect(remote.uploadedMeta.single['tipo'], 'Video');
+    expect(remote.uploadedMeta.single['fueraObra'], isTrue);
   });
+
+  test(
+      'CU-45 reparación legacy (Sprint 4): checksum declarado ≠ archivo real '
+      '→ re-ancla al checksum real y sincroniza', () async {
+    final evidenceDao = await openEvidenceDao('sync45fix');
+    await evidenceDao.create(
+      hitoId: 'h1',
+      obraId: 'w1',
+      tipo: EvidenceType.foto,
+      archivo: 'blob://local/foto',
+      latitud: -34.6,
+      longitud: -58.38,
+      precisionMetros: 5,
+      fechaCaptura: DateTime(2026, 9, 19),
+      tamanoBytes: 3,
+      // Build anteriores declaraban el checksum de los bytes estampados en
+      // RAM, pero el archivo del caché era el original sin marca: divergencia
+      // permanente en el CU-45 (evidencia nunca sincronizada).
+      checksum: 'VIEJO-ESTAMPADO',
+      marcaTexto: 'm',
+    );
+    final realChecksum = EvidenceChecksum.sha256OfBytes(
+      Uint8List.fromList([1, 2, 3]),
+    );
+
+    // Fake que solo acepta cuando el checksum enviado coincide con el
+    // esperado (simula la validación CU-45 del servidor).
+    final remote2 = _ChecksumAwareFake(expected: realChecksum);
+    final milestoneDao = await openTestDao('sync45fix');
+    final engine = SyncEngine(
+      milestones: milestoneDao,
+      evidences: evidenceDao,
+      remote: remote2,
+      evidenceReader: (path) async => [1, 2, 3],
+    );
+    final result = await engine.run();
+
+    expect(result.evidenciasSubidas, 1);
+    expect(remote2.uploadedChecksums.last, realChecksum);
+    final pending = await evidenceDao.listPendingSync();
+    expect(pending, isEmpty); // reparada y sincronizada.
+    final all = await evidenceDao.listByHito('h1');
+    expect(all.single.checksum, realChecksum);
+    expect(all.single.esSincronizado, isTrue);
+  });
+}
+
+/// Fake que acepta solo cuando el checksum enviado coincide con el esperado
+/// (simula la validación CU-45 del servidor).
+class _ChecksumAwareFake implements SyncRemoteDataSource {
+  _ChecksumAwareFake({required this.expected});
+
+  final String expected;
+
+  final List<Map<String, dynamic>> pushedMilestones = [];
+  final List<Map<String, dynamic>> uploadedMeta = [];
+  final List<String> uploadedChecksums = [];
+  int uploadCalls = 0;
+
+  @override
+  Future<MilestoneSyncVerdict> pushMilestone(Map<String, dynamic> payload) async {
+    pushedMilestones.add(payload);
+    throw const SyncTemporaryException('Sin hitos que probar');
+  }
+
+  @override
+  Future<void> uploadEvidence({
+    required Map<String, dynamic> evidenceMeta,
+    required List<int> bytes,
+    required int totalBytes,
+    required String checksum,
+  }) async {
+    uploadCalls++;
+    uploadedMeta.add(evidenceMeta);
+    uploadedChecksums.add(checksum);
+    if (checksum != expected) {
+      throw const SyncIntegrityException('Archivo corrupto en el transporte');
+    }
+  }
 }

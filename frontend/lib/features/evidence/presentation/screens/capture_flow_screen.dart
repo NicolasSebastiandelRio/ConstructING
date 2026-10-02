@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../../core/storage/local_database.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -10,7 +11,9 @@ import '../../data/datasources/evidence_local_data_source.dart';
 import '../../domain/entities/evidence.dart';
 import '../../gateway/capture_gateway.dart';
 import '../../gateway/location_gateway.dart';
+import '../../gateway/video_controller_platform.dart';
 import '../bloc/capture_flow_bloc.dart';
+import '../widgets/evidence_mismatch_banner.dart';
 
 /// Flujo de captura de evidencia in situ (CU-31..CU-41, RF_03).
 ///
@@ -229,34 +232,40 @@ class _PreviewViewState extends State<_PreviewView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Vista previa con la marca inalterable ya estampada (CU-36).
-          if (draft.tipo == EvidenceType.foto)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.memory(
-                Uint8List.fromList(draft.bytes),
-                fit: BoxFit.contain,
-                height: 320,
-              ),
-            )
-          else
-            Container(
-              height: 320,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade900,
+          // Vista previa con la marca inalterable ya estampada (CU-36) y,
+          // si la captura no coincide con el ancla (CU-35 soft-fail), la
+          // etiqueta roja permanente sobre la imagen/video.
+          Stack(
+            children: [
+              ClipRRect(
                 borderRadius: BorderRadius.circular(12),
+                child: draft.tipo == EvidenceType.foto
+                    ? Image.memory(
+                        Uint8List.fromList(draft.bytes),
+                        fit: BoxFit.contain,
+                        height: 320,
+                      )
+                    // Sprint 4 (CU-33 paso 4): la preview del video ahora es
+                    // REPRODUCIBLE (antes solo un ícono estático): permite
+                    // verificar la toma antes de descartar (CU-41).
+                    : _VideoPreviewPlayer(
+                        path: draft.path,
+                        marcaTexto: draft.marcaTexto,
+                      ),
               ),
-              child: const Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.videocam, color: AppTheme.accentGold, size: 64),
-                  SizedBox(height: 8),
-                  Text('Video capturado en vivo',
-                      style: TextStyle(color: Colors.white70)),
-                ],
-              ),
+              if (draft.fueraDeObra)
+                const EvidenceLocationMismatchBanner(),
+            ],
+          ),
+          if (draft.fueraDeObra) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'La captura quedó fuera del radio perimetral (±200 m) del ancla '
+              'de la obra, por eso la evidencia queda etiquetada en rojo. '
+              'Puede guardarse igual (CU-35 soft-fail).',
+              style: TextStyle(color: AppTheme.primaryRed, fontSize: 11),
             ),
+          ],
           const SizedBox(height: 16),
           Text(
             draft.marcaTexto,
@@ -298,6 +307,184 @@ class _PreviewViewState extends State<_PreviewView> {
                 context.read<CaptureFlowBloc>().add(EvidenceDiscardRequested()),
             child: const Text('Descartar',
                 style: TextStyle(color: AppTheme.primaryRed)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Alt. de CU-31/32/33/34/38: alerta visual con el mensaje exacto y
+/// opción de reintentar (CU-41).
+class _VideoPreviewPlayer extends StatefulWidget {
+  final String path;
+
+  /// Marca pericial (CU-36): se presenta como overlay de reproducción,
+  /// tal como define DataStamp para video (la banda del video no es
+  /// editable en memoria).
+  final String marcaTexto;
+
+  const _VideoPreviewPlayer({
+    required this.path,
+    required this.marcaTexto,
+  });
+
+  @override
+  State<_VideoPreviewPlayer> createState() => _VideoPreviewPlayerState();
+}
+
+class _VideoPreviewPlayerState extends State<_VideoPreviewPlayer> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _setup();
+  }
+
+  Future<void> _setup() async {
+    VideoPlayerController? controller;
+    try {
+      controller = localVideoControllerOf(widget.path);
+      await controller.initialize();
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+      return;
+    }
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
+    setState(() {
+      _controller = controller;
+      _ready = true;
+      controller!.play();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready && !_failed) {
+      return Container(
+        height: 320,
+        alignment: Alignment.center,
+        color: Colors.grey.shade900,
+        child: const CircularProgressIndicator(color: AppTheme.accentGold),
+      );
+    }
+    if (_failed || _controller == null) {
+      return Container(
+        height: 320,
+        alignment: Alignment.center,
+        color: Colors.grey.shade900,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.videocam, color: AppTheme.accentGold, size: 64),
+            const SizedBox(height: 8),
+            Text('Video capturado en vivo',
+                style: TextStyle(color: Colors.white70)),
+          ],
+        ),
+      );
+    }
+    final controller = _controller!;
+    return Stack(
+      alignment: Alignment.bottomCenter,
+      children: [
+        AspectRatio(
+          aspectRatio: controller.value.aspectRatio == 0
+              ? 16 / 9
+              : controller.value.aspectRatio,
+          child: VideoPlayer(controller),
+        ),
+        // Marca pericial estampada como overlay (CU-36 + video).
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 48,
+          child: Container(
+            color: Colors.black.withValues(alpha: 0.75),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Text(
+              widget.marcaTexto,
+              maxLines: 3,
+              style: const TextStyle(color: Colors.white, fontSize: 10),
+            ),
+          ),
+        ),
+        _PreviewVideoControls(controller: controller),
+      ],
+    );
+  }
+}
+
+class _PreviewVideoControls extends StatefulWidget {
+  final VideoPlayerController controller;
+
+  const _PreviewVideoControls({required this.controller});
+
+  @override
+  State<_PreviewVideoControls> createState() => _PreviewVideoControlsState();
+}
+
+class _PreviewVideoControlsState extends State<_PreviewVideoControls> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onTick);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onTick);
+    super.dispose();
+  }
+
+  void _onTick() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    return Container(
+      color: Colors.black45,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        children: [
+          IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            icon: Icon(
+              controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
+              color: Colors.white,
+              size: 20,
+            ),
+            onPressed: () {
+              controller.value.isPlaying
+                  ? controller.pause()
+                  : controller.play();
+            },
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: VideoProgressIndicator(
+              controller,
+              allowScrubbing: true,
+              colors: const VideoProgressColors(
+                playedColor: AppTheme.accentGold,
+              ),
+            ),
           ),
         ],
       ),

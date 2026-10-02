@@ -89,7 +89,9 @@ class DataStamp {
         ],
       ),
     );
-    textPainter.layout(maxWidth: image.width - 32.0);
+    textPainter.layout(
+      maxWidth: math.max(0.0, (image.width - 32.0).toDouble()),
+    );
     textPainter.paint(
       canvas,
       ui.Offset(16, image.height - textHeight - 12),

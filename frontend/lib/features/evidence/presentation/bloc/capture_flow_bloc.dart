@@ -12,6 +12,7 @@ import '../../domain/geo/closeness_validator.dart';
 import '../../domain/limits/video_limit.dart';
 import '../../gateway/capture_gateway.dart';
 import '../../gateway/location_gateway.dart';
+import '../../gateway/video_duration.dart';
 
 /// Borrador de evidencia en memoria temporal (CU-41: buffer RAM). Se
 /// confirma con "Guardar" (CU-42) o se descarta sin persistir (CU-41).
@@ -27,6 +28,11 @@ class EvidenceDraft extends Equatable {
   final String checksum;
   final double? duracionSeg;
 
+  /// CU-35 soft-fail: la captura no coincide con el ancla de la obra
+  /// (fuera del radio o sin ancla comparable). La evidencia se guarda
+  /// igual y la UI estampa la etiqueta roja de no coincidencia.
+  final bool fueraDeObra;
+
   const EvidenceDraft({
     required this.path,
     required this.bytes,
@@ -38,6 +44,7 @@ class EvidenceDraft extends Equatable {
     required this.marcaTexto,
     required this.checksum,
     this.duracionSeg,
+    this.fueraDeObra = false,
   });
 
   @override
@@ -51,6 +58,7 @@ class EvidenceDraft extends Equatable {
         marcaTexto,
         checksum,
         duracionSeg,
+        fueraDeObra,
       ];
 }
 
@@ -150,6 +158,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     this.obraLatitud,
     this.obraLongitud,
     this.radioMetros = ClosenessValidator.defaultRadiusMeters,
+    this.videoDurationReader = readVideoDuration,
   }) : super(CaptureFlowReady()) {
     on<CaptureFlowInit>(_onInit);
     on<CapturePhotoRequested>(_onPhoto);
@@ -171,6 +180,10 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
   final double? obraLatitud;
   final double? obraLongitud;
   final double radioMetros;
+
+  /// CU-38 paso 2: lector de la duración real del video (metadato).
+  /// Inyectable en tests; producción usa `video_player`.
+  final VideoDurationReader videoDurationReader;
 
   EvidenceDraft? _draft;
   String? _nota;
@@ -236,7 +249,9 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     final position = await _obtainPosition(emit);
     if (position == null) return; // Alt. CU-34: abortó con mensaje.
 
-    // --- CU-35: validación de cercanía al punto de obra.
+    // --- CU-35: validación de cercanía al punto de obra (soft-fail,
+    // Sprint 4): fuera del radio o sin ancla NO aborta más la captura; la
+    // evidencia queda marcada y la UI estampa la etiqueta roja permanente.
     final check = ClosenessValidator.check(
       latitudDispositivo: position.latitud,
       longitudDispositivo: position.longitud,
@@ -244,21 +259,22 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
       longitudObra: obraLongitud,
       radiusMeters: radioMetros,
     );
-    if (!check.allowed) {
-      emit(const CaptureFlowFailure(
-        message: ClosenessValidator.outsideMessage,
-      ));
-      return;
-    }
+    final fueraDeObra = !check.allowed;
 
     final bytes = await captureGateway.readBytes(path);
 
     double? duracionSeg;
     if (tipo == EvidenceType.video) {
-      // --- CU-38 pasos 2-4: límites de peso y duración del video.
+      // --- CU-38 pasos 2-4: límites de peso y duración del video. La
+      // duración ahora se LEE del metadato real (antes se validaba con
+      // null: el límite de duración no se aplicaba nunca y `duracionSeg`
+      // nunca se persistía). En video el archivo definitivo es el mismo
+      // temporal del picker (no se re-estampa), por eso aquí no hay
+      // divergencia posible con el checksum.
+      duracionSeg = await videoDurationReader(path);
       final exceeded = VideoLimitValidator.validate(
         sizeBytes: bytes.length,
-        durationSeconds: null,
+        durationSeconds: duracionSeg,
       );
       if (exceeded != null) {
         emit(CaptureFlowFailure(message: exceeded));
@@ -277,6 +293,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     );
     final marcaTexto = DataStamp.composeText(lines);
     List<int> finalBytes = bytes;
+    String archivoDefinitivo = path;
     if (tipo == EvidenceType.foto) {
       try {
         final stamped = await DataStamp.renderOverImage(
@@ -284,9 +301,18 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
           lines: lines,
         );
         finalBytes = stamped;
+        // Sprint 4 (CU-45): persiste los bytes ESTAMPADOS como archivo del
+        // caché local. El checksum se calcula sobre estos bytes; si se
+        // sincronizara el temporal del picker (sin marca) el servidor
+        // detectaría divergencia y la evidencia nunca saldría pendiente.
+        archivoDefinitivo = await captureGateway.persistFinal(
+          stamped,
+          originalPath: path,
+        );
       } catch (e) {
         // Sin render disponible (buffer no procesable) la marca persiste
-        // como atributo y overlay (RNF_S_04: traza inalterable igual).
+        // como atributo y overlay (RNF_S_04: traza inalterable igual); el
+        // checksum queda descripto por el archivo original (coherente).
       }
     }
 
@@ -295,7 +321,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     );
 
     _draft = EvidenceDraft(
-      path: path,
+      path: archivoDefinitivo,
       bytes: finalBytes,
       tipo: tipo,
       latitud: position.latitud,
@@ -305,6 +331,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
       marcaTexto: marcaTexto,
       checksum: checksum,
       duracionSeg: duracionSeg,
+      fueraDeObra: fueraDeObra,
     );
     emit(CaptureFlowPreview(draft: _draft!));
   }
@@ -347,6 +374,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
         marcaTexto: draft.marcaTexto,
         checksum: draft.checksum,
         duracionSeg: draft.duracionSeg,
+        fueraDeObra: draft.fueraDeObra,
       );
     }
     emit(state);
@@ -390,13 +418,17 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
         tamanoBytes: draft.bytes.length,
         checksum: draft.checksum,
         marcaTexto: draft.marcaTexto,
+        fueraDeObra: draft.fueraDeObra,
       );
       // CU-41/CU-44: el borrador se libera del buffer; el registro queda
       // seguro en el teléfono a la espera de cobertura de red (CU-44).
       _draft = null;
       _nota = null;
-      emit(const CaptureFlowSaved(
-        message: 'Evidencia guardada localmente y encolada para sincronización.',
+      emit(CaptureFlowSaved(
+        message: draft.fueraDeObra
+            ? 'Evidencia guardada. Su ubicación no coincide con la obra: '
+                'quedará etiquetada en rojo en la galería.'
+            : 'Evidencia guardada localmente y encolada para sincronización.',
       ));
     } catch (e) {
       emit(CaptureFlowFailure(message: e.toString().replaceAll('Exception: ', '')));

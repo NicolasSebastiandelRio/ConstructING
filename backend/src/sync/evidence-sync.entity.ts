@@ -58,6 +58,10 @@ export class EvidenceSyncEntity {
   @Column({ type: 'text' })
   marcaTexto!: string;
 
+  /** CU-35 soft-fail (Sprint 4): la captura no coincide con el ancla. */
+  @Column({ default: false })
+  fueraObra!: boolean;
+
   /** Nombre del archivo almacenado en el directorio de la nube. */
   @Column()
   archivoNombre!: string;

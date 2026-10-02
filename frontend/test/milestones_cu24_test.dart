@@ -183,10 +183,15 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: MilestonesSection(
-              obraId: 'w1',
-              isProfesional: true,
-              dataSource: dao,
+            // En producción la sección vive dentro del SingleChildScrollView
+            // de la ficha; el viewport de test es más chico que la Hoja de
+            // Ruta completa, por eso se reproduce el mismo contexto scroll.
+            body: SingleChildScrollView(
+              child: MilestonesSection(
+                obraId: 'w1',
+                isProfesional: true,
+                dataSource: dao,
+              ),
             ),
           ),
         ),

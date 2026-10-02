@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../evidence/data/datasources/evidence_local_data_source.dart';
+import '../../evidence/domain/checksum/evidence_checksum.dart';
 import '../../evidence/domain/entities/evidence.dart';
 import '../../milestones/data/datasources/milestone_local_data_source.dart';
 import '../data/datasources/sync_remote_data_source.dart';
@@ -119,6 +120,8 @@ class SyncEngine {
   /// Retorna la cantidad de retransmisiones ejecutadas.
   Future<int> _uploadWithIntegrity(Evidence evidence) async {
     var attempt = 0;
+    var checksumActual = evidence.checksum;
+    var reparada = false;
     while (true) {
       attempt++;
       try {
@@ -127,13 +130,31 @@ class SyncEngine {
           evidenceMeta: _metaOf(evidence),
           bytes: bytes,
           totalBytes: bytes.length,
-          checksum: evidence.checksum,
+          checksum: checksumActual,
         );
         // CU-44 paso 4: marca sincronizado + libera caché temporal.
         await evidences.markSynced(evidence.id);
         return attempt - 1;
       } on SyncIntegrityException {
-        if (attempt >= maxIntegrityRetries) rethrow;
+        if (attempt >= maxIntegrityRetries) {
+          if (reparada) rethrow;
+          // Reparación legacy (Sprint 4): build previos calculaban el
+          // checksum sobre los bytes estampados en RAM y sincronizaban el
+          // archivo temporal sin marca → divergencia permanente. Se
+          // re-ancla el checksum al archivo real para que el registro
+          // muerto pueda volcar a la nube (el servidor valida CU-45 igual).
+          final bytes = await _bytesOf(evidence);
+          final real = EvidenceChecksum.sha256OfBytes(
+            Uint8List.fromList(bytes),
+          );
+          if (real != checksumActual) {
+            await evidences.updateChecksum(evidence.id, real);
+            checksumActual = real;
+            reparada = true;
+            continue;
+          }
+          rethrow;
+        }
         debugPrint(
           'CU-45 Alt. 2.2: retransmisión ${attempt + 1} de la evidencia ${evidence.id}.',
         );
@@ -164,6 +185,8 @@ class SyncEngine {
       'fechaCaptura': evidence.fechaCaptura.toIso8601String(),
       'duracionSeg': evidence.duracionSeg,
       'marcaTexto': evidence.marcaTexto,
+      // CU-35 soft-fail (Sprint 4): viaja a la nube para auditoría.
+      'fueraObra': evidence.fueraDeObra,
     };
   }
 

@@ -21,13 +21,14 @@ class CacheStorageException implements Exception {
 /// en móvil, IndexedDB en web (misma API). En tests se inyecta
 /// `sqflite_common_ffi` en memoria.
 ///
-/// Esquema v2: `milestones` (hitos con flag `es_sincronizado` para el motor
+/// Esquema v3: `milestones` (hitos con flag `es_sincronizado` para el motor
 /// de sincronización, CU-44), `milestone_dependencies` (aristas predecesor →
 /// hito para CU-24 y la ruta crítica CU-29) y `evidences` (evidencias
-/// periciales georreferenciadas de CU-32/33, con checksum CU-45).
+/// periciales georreferenciadas de CU-32/33, con checksum CU-45 y flag
+/// `fuera_obra` del CU-35 soft-fail, Sprint 4).
 class LocalDatabase {
   static const String fileName = 'constructing.db';
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 3;
 
   static const String createMilestones = '''
 CREATE TABLE milestones(
@@ -52,7 +53,8 @@ CREATE TABLE milestone_dependencies(
 
   /// Tabla de evidencias periciales (CU-32/CU-33 vía CU-42, RF_03/RF_04).
   /// Nace `es_sincronizado=0`; el CU-44 lo marca al confirmar HTTP 200 y
-  /// liberar el caché temporal.
+  /// liberar el caché temporal. `fuera_obra` registra el CU-35 soft-fail
+  /// (captura fuera del radio perimetral, Sprint 4).
   static const String createEvidences = '''
 CREATE TABLE evidences(
   id TEXT PRIMARY KEY,
@@ -69,6 +71,7 @@ CREATE TABLE evidences(
   tamano_bytes INTEGER NOT NULL,
   checksum TEXT NOT NULL,
   marca_texto TEXT NOT NULL,
+  fuera_obra INTEGER NOT NULL DEFAULT 0,
   es_sincronizado INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -116,6 +119,12 @@ CREATE TABLE evidences(
                   await db.execute(createEvidences);
                   await db.execute(
                       'CREATE INDEX idx_evidences_hito ON evidences(hito_id)');
+                }
+                // Migración v2 → v3: flag `fuera_obra` del CU-35 soft-fail.
+                // (v1 → v3 ya creó la tabla con la columna, no se duplica.)
+                if (oldVersion == 2) {
+                  await db.execute(
+                      'ALTER TABLE evidences ADD COLUMN fuera_obra INTEGER NOT NULL DEFAULT 0');
                 }
               },
             ),

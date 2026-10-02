@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, stat, appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -20,6 +20,8 @@ export interface EvidenceSyncMetadata {
   tamanoBytes: number;
   checksum: string;
   marcaTexto: string;
+  /** CU-35 soft-fail (Sprint 4): captura fuera del radio perimetral. */
+  fueraObra?: boolean;
 }
 
 export type EvidenceUploadOutcome =
@@ -105,6 +107,34 @@ export class EvidenceSyncService {
     return join(this.uploadDir(), `${id}.bin`);
   }
 
+  /**
+   * Descarga del binario ya sincronizado (Sprint 4, preview desde la nube).
+   * El visor del frontend lo consume cuando el caché local ya se liberó
+   * (CU-44 paso 4). Devuelve el contenido con el Content-Type correcto.
+   */
+  async loadFile(id: string): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
+    const entity = await this.repository.findOne({ where: { id } });
+    if (!entity) {
+      throw new NotFoundException(
+        `La evidencia ${id} no está sincronizada en la nube.`,
+      );
+    }
+    const path = join(this.uploadDir(), entity.archivoNombre);
+    let buffer: Buffer;
+    try {
+      buffer = await readFile(path);
+    } catch {
+      throw new NotFoundException(
+        `El archivo de la evidencia ${id} no está disponible en el servidor.`,
+      );
+    }
+    return {
+      buffer,
+      contentType: entity.tipo === 'Video' ? 'video/mp4' : 'image/jpeg',
+      filename: entity.archivoNombre,
+    };
+  }
+
   /** CU-46 paso 2: tamaño exacto en bytes ya recibido del archivo. */
   async receivedBytes(id: string): Promise<number> {
     try {
@@ -187,6 +217,7 @@ export class EvidenceSyncService {
       tamanoBytes: meta.tamanoBytes,
       checksum: meta.checksum,
       marcaTexto: meta.marcaTexto,
+      fueraObra: meta.fueraObra ?? false,
       archivoNombre,
     });
     if (existing) {

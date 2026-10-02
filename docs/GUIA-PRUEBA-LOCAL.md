@@ -55,10 +55,20 @@ flutter run --dart-define=API_BASE_URL=http://TU_IP:3000
 
 ## 3. Datos de prueba
 
-- Crear **obra de prueba** (CU-13) con coordenadas = donde estés (CU-15), porque la captura exige estar a ±200 m del ancla (CU-35).
+- Crear **obra de prueba** (CU-13) con coordenadas = donde estés (CU-15).
+  La captura dentro del ancla (±200 m, CU-35) queda normal; si se captura
+  fuera del radio, la evidencia **se guarda igual** y queda con la etiqueta
+  roja "IMAGEN NO COINCIDENTE CON LA UBICACIÓN DE LA OBRA" en la galería y
+  en el visor (CU-35 soft-fail, Sprint 4).
 - Hito de prueba (CU-23) → iniciar → certificar (CU-26/28).
 - Evidencia: ficha → ícono cámara en el hito → foto/video → nota → Guardar.
-- Galería + "Ver Mapa" desde el ícono de foto-librería del hito (CU-40).
+- Galería + "Ver Mapa" desde el ícono de foto-librería del hito (CU-40): el
+  mapa se referencia al **ancla de la obra** (pin bandera) y encuadra
+  obra + evidencias juntas.
+- **Visor**: tocar una tarjeta de la galería para previsualizar la foto
+  (con zoom) o el video (con play/pausa). Si el caché local ya se liberó
+  tras sincronizar, el binario se descarga de la nube (`GET
+  /evidences/:id/file`).
 
 ## 4. Sincronización offline-first (CU-44..49)
 
@@ -89,7 +99,9 @@ cd frontend && flutter test test/evidence_capture_flow_test.dart test/sync_cu44_
 | Login falla desde emulador/teléfono | Backend no alcanzable | `--dart-define=API_BASE_URL=http://<IP>:3000` (emulador: `10.0.2.2`) |
 | Los hitos "desaparecen" en web | Cambió el puerto de flutter run | Usar siempre `--web-port=8080` |
 | No aparece el dispositivo Android | Depuración USB off / cable solo-carga | Opciones de desarrollador + otro cable |
-| "Se encuentra fuera de los límites" | Captura lejos del ancla CU-15 | Crear/editar obra con coordenadas actuales |
+| "Se encuentra fuera de los límites" | (Sprint 3) ya no aborta la captura | La evidencia se guarda etiquetada en rojo (CU-35 soft-fail) |
+| Las imágenes no se sincronizan (HTTP 413) | Límite de body de Express (100 KB) | Corregido en `main.ts` (límite 50 MB, CU-46); reiniciar el backend |
+| No previsualiza una evidencia ya sincronizada | El caché local se liberó (CU-44 paso 4) | El visor descarga el binario de la nube; requiere backend arriba |
 | "Mapa no disponible en modo offline" | Sin conectividad (CU-40 Alt.) | Volver a online para los tiles |
 
 ## 7. Enlaces

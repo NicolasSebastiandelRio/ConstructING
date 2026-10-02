@@ -21,7 +21,9 @@ class EvidenceLocalDataSource {
   String _nowIso() => DateTime.now().toUtc().toIso8601String();
 
   /// CU-32 paso 6 / CU-33 paso 4 (vía CU-42): persiste la evidencia con el
-  /// flag `es_sincronizado=false` — queda encolada para el CU-44.
+  /// flag `es_sincronizado=false` — queda encolada para el CU-44. El flag
+  /// `fueraDeObra` (CU-35 soft-fail) viaja con la fila para que la galería
+  /// estampe la etiqueta roja de no coincidencia.
   Future<Evidence> create({
     required String hitoId,
     required String obraId,
@@ -36,6 +38,7 @@ class EvidenceLocalDataSource {
     required int tamanoBytes,
     required String checksum,
     required String marcaTexto,
+    bool fueraDeObra = false,
   }) async {
     if (hitoId.trim().isEmpty || obraId.trim().isEmpty) {
       throw const CacheStorageException(
@@ -60,6 +63,7 @@ class EvidenceLocalDataSource {
       tamanoBytes: tamanoBytes,
       checksum: checksum.trim(),
       marcaTexto: marcaTexto,
+      fueraDeObra: fueraDeObra,
     );
     try {
       final db = await _db;
@@ -135,6 +139,20 @@ class EvidenceLocalDataSource {
       await txn.update(
         'evidences',
         {'archivo': archivo, 'updated_at': _nowIso()},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+
+  /// Reparación legacy (Sprint 4): re-ancla el checksum CU-45 al archivo
+  /// real del caché (ver SyncEngine._uploadWithIntegrity).
+  Future<void> updateChecksum(String id, String checksum) async {
+    final db = await _db;
+    await db.transaction((txn) async {
+      await txn.update(
+        'evidences',
+        {'checksum': checksum, 'updated_at': _nowIso()},
         where: 'id = ?',
         whereArgs: [id],
       );
