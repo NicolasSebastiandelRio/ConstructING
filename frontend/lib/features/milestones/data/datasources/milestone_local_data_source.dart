@@ -74,8 +74,23 @@ class MilestoneLocalDataSource {
   }
 
   /// CU-25: actualiza descripción/duración/estado de un hito existente.
+  /// CU-57 (RNF_C_05): los permisos de edición están inactivos sobre un
+  /// hito certificado — sus datos técnicos quedaron grabados en piedra.
   Future<Milestone> update(Milestone milestone) async {
     final db = await _db;
+    final rows = await db.query(
+      'milestones',
+      columns: ['estado'],
+      where: 'id = ?',
+      whereArgs: [milestone.id],
+      limit: 1,
+    );
+    if (rows.isNotEmpty &&
+        rows.first['estado'] == MilestoneStatus.certificado.label) {
+      throw const CacheStorageException(
+        'El hito está certificado: sus datos quedaron congelados por la firma (CU-57).',
+      );
+    }
     try {
       await db.transaction((txn) async {
         await txn.update(
@@ -103,13 +118,73 @@ class MilestoneLocalDataSource {
 
   /// CU-27: elimina el hito y sus aristas (las precondiciones las valida el
   /// servicio/bloc: sin progreso, sin evidencias, sin dependencias activas).
+  /// CU-57 (RNF_C_05): el Delete está inactivo sobre un hito certificado.
   Future<void> delete(String id) async {
     final db = await _db;
+    final rows = await db.query(
+      'milestones',
+      columns: ['estado'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isNotEmpty &&
+        rows.first['estado'] == MilestoneStatus.certificado.label) {
+      throw const CacheStorageException(
+        'El hito está certificado: sus datos quedaron congelados por la firma (CU-57).',
+      );
+    }
     await db.transaction((txn) async {
       await txn.delete('milestone_dependencies',
           where: 'hito_id = ? OR predecesor_id = ?', whereArgs: [id, id]);
       await txn.delete('milestones', where: 'id = ?', whereArgs: [id]);
     });
+  }
+
+  /// CU-57 paso 2 (RF_08, RNF_C_05): congela el hito recién certificado —
+  /// actualización lógica a "Certificado" en una transacción inmutable.
+  /// Queda `es_sincronizado=false` para encolar la subida del cierre (CU-44).
+  Future<Milestone> freeze(String hitoId) async {
+    final db = await _db;
+    final rows = await db.query(
+      'milestones',
+      where: 'id = ?',
+      whereArgs: [hitoId],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      throw const CacheStorageException(
+          'El hito ya no existe en la Hoja de Ruta.');
+    }
+    final current = Milestone.fromLocalDb(rows.first);
+    if (current.estado == MilestoneStatus.certificado) {
+      throw const CacheStorageException('El hito ya está certificado.');
+    }
+    if (current.estado != MilestoneStatus.enEjecucion) {
+      throw const CacheStorageException(
+          'Solo se congela un hito en estado "En Ejecución".');
+    }
+    final frozen =
+        current.copyWith(estado: MilestoneStatus.certificado, esSincronizado: false);
+    try {
+      await db.transaction((txn) async {
+        await txn.update(
+          'milestones',
+          {
+            'estado': frozen.estado.label,
+            'es_sincronizado': 0,
+            'updated_at': _nowIso(),
+          },
+          where: 'id = ?',
+          whereArgs: [hitoId],
+        );
+      });
+    } catch (e) {
+      throw const CacheStorageException(
+        'No se pudo guardar localmente. Verifique el espacio disponible en el dispositivo.',
+      );
+    }
+    return frozen;
   }
 
   /// CU-24: registra que [hitoId] depende de [predecesorId].

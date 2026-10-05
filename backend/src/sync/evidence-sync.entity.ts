@@ -41,7 +41,7 @@ export class EvidenceSyncEntity {
   @Column('double precision')
   precisionM!: number;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'datetime' })
   fechaCaptura!: Date;
 
   @Column('double precision', { nullable: true })
@@ -66,9 +66,9 @@ export class EvidenceSyncEntity {
   @Column()
   archivoNombre!: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn()
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn()
   updatedAt!: Date;
 }

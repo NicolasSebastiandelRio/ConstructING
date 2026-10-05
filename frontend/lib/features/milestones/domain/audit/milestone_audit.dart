@@ -17,4 +17,13 @@ class MilestoneAudit {
       'estado: ${before.estado.label} → ${after.label}',
     );
   }
+
+  /// CU-50 paso 2/3: solicitud de cierre formal validada. La traza quedará
+  /// persistida e inalterable en el Audit Log (CU-60, Sprint 5).
+  static void logCertificationRequest({required Milestone hito}) {
+    debugPrint(
+      '[AUDIT-CU60-PENDIENTE] certificación solicitada '
+      'hito=${hito.id} obra=${hito.obraId} estado=${hito.estado.label}',
+    );
+  }
 }

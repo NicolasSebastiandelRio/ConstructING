@@ -39,12 +39,12 @@ export class MilestoneSyncEntity {
   esCritico!: boolean;
 
   /** Reloj de la última modificación local (CU-47). */
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'datetime', nullable: true })
   updatedAtLocal!: Date | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn()
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn()
   updatedAt!: Date;
 }

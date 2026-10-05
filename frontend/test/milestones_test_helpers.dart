@@ -5,6 +5,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:constructing_mobile/core/storage/local_database.dart';
 import 'package:constructing_mobile/features/evidence/data/datasources/evidence_local_data_source.dart';
+import 'package:constructing_mobile/features/evidence/domain/entities/evidence.dart';
 import 'package:constructing_mobile/features/milestones/data/datasources/milestone_local_data_source.dart';
 import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
 
@@ -49,6 +50,62 @@ Future<EvidenceLocalDataSource> openEvidenceDao(String prefix) async {
     if (await file.exists()) await file.delete();
   });
   return EvidenceLocalDataSource(localDatabase: localDb);
+}
+
+/// CU-50+: DAOs de hitos + evidencias sobre UNA MISMA BD temporal (la
+/// validación del cierre consulta la tabla evidences del mismo archivo).
+/// Expone la [LocalDatabase] para sumar DAOs adicionales (ej.: tabla de
+/// certificaciones, CU-59) sobre el mismo archivo.
+Future<({
+  LocalDatabase db,
+  MilestoneLocalDataSource milestones,
+  EvidenceLocalDataSource evidences,
+})> openSharedTestDaos(String prefix) async {
+  sqfliteFfiInit();
+  final localDb = LocalDatabase();
+  final path =
+      '${Directory.systemTemp.path}/sh_${prefix}_${_dbCounter++}_${DateTime.now().microsecondsSinceEpoch}.db';
+  await localDb.openLocalDatabase(
+    factoryOverride: databaseFactoryFfiNoIsolate,
+    nameOverride: path,
+  );
+  addTearDown(() async {
+    await localDb.close();
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+  });
+  return (
+    db: localDb,
+    milestones: MilestoneLocalDataSource(localDatabase: localDb),
+    evidences: EvidenceLocalDataSource(localDatabase: localDb),
+  );
+}
+
+/// CU-50: carga una evidencia de prueba (foto válida mínima) para un hito.
+/// Con [sincronizada] simula el CU-44 hecho (caché liberado, registro en BD).
+Future<Evidence> seedEvidence(
+  EvidenceLocalDataSource dao, {
+  required String hitoId,
+  required String obraId,
+  bool sincronizada = false,
+}) async {
+  final evidence = await dao.create(
+    hitoId: hitoId,
+    obraId: obraId,
+    tipo: EvidenceType.foto,
+    archivo: sincronizada ? '' : 'cache/foto.jpg',
+    latitud: -34.6,
+    longitud: -58.4,
+    precisionMetros: 5,
+    fechaCaptura: DateTime(2026, 9, 1, 10),
+    tamanoBytes: 1024,
+    checksum: 'checksum-$hitoId',
+    marcaTexto: 'ConstructING',
+  );
+  if (sincronizada) {
+    await dao.markSynced(evidence.id);
+  }
+  return evidence;
 }
 
 /// DAO fake en memoria para widget tests (sin FFI: abrir BD real dentro de
@@ -183,6 +240,28 @@ class FakeMilestoneDao implements MilestoneLocalDataSource {
         estado: MilestoneStatus.fromLabel(estado),
       );
     }
+  }
+
+  @override
+  Future<Milestone> freeze(String hitoId) async {
+    final current = _store[hitoId];
+    if (current == null) {
+      throw const CacheStorageException(
+          'El hito ya no existe en la Hoja de Ruta.');
+    }
+    if (current.estado == MilestoneStatus.certificado) {
+      throw const CacheStorageException('El hito ya está certificado.');
+    }
+    if (current.estado != MilestoneStatus.enEjecucion) {
+      throw const CacheStorageException(
+          'Solo se congela un hito en estado "En Ejecución".');
+    }
+    final frozen = current.copyWith(
+      estado: MilestoneStatus.certificado,
+      esSincronizado: false,
+    );
+    _store[hitoId] = frozen;
+    return frozen;
   }
 
   @override

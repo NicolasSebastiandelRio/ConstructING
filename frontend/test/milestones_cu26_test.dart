@@ -77,7 +77,8 @@ void main() {
       expect(error.message, contains('Base'));
     });
 
-    test('certifica un En Ejecución sin revalidar predecesores', () async {
+    test('el cierre directo está bloqueado: se exige el flujo CU-50 (RF_05)',
+        () async {
       final dao = await openTestDao('cu26');
       final base = await dao.create(obraId: 'w1', nombre: 'Base', duracionDias: 2);
       final running = await dao.create(obraId: 'w1', nombre: 'Top', duracionDias: 2);
@@ -86,12 +87,15 @@ void main() {
       final bloc = MilestonesBloc(dataSource: dao);
       addTearDown(bloc.close);
 
-      bloc.add(AdvanceMilestoneStatus(hitoId: running.id));
-      await expectLater(
+      final expectation = expectLater(
         bloc.stream,
-        emitsInOrder([isA<MilestonesLoading>(), isA<MilestonesLoaded>()]),
+        emitsInOrder([isA<MilestonesLoading>(), isA<MilestonesError>()]),
       );
-      expect((await dao.getById(running.id))?.estado, MilestoneStatus.certificado);
+      bloc.add(AdvanceMilestoneStatus(hitoId: running.id));
+      await expectation;
+
+      expect((bloc.state as MilestonesError).message, contains('CU-50'));
+      expect((await dao.getById(running.id))?.estado, MilestoneStatus.enEjecucion);
     });
 
     test('rechaza avanzar un Certificado o un hito inexistente', () async {

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../audit/data/audit_log_writer.dart';
+import '../../../evidence/data/datasources/evidence_local_data_source.dart';
 import '../../data/datasources/estimated_end_writer.dart';
 import '../../data/datasources/milestone_local_data_source.dart';
 import '../../domain/audit/milestone_audit.dart';
@@ -8,6 +10,7 @@ import '../../domain/cpm/critical_path.dart';
 import '../../domain/entities/milestone.dart';
 import '../../domain/graph/milestone_graph.dart';
 import '../../domain/notify/milestone_owner_notifier.dart';
+import '../../domain/validation/certification_guard.dart';
 import '../../domain/validation/progression_guard.dart';
 import 'milestones_event.dart';
 import 'milestones_state.dart';
@@ -16,6 +19,12 @@ import 'milestones_state.dart';
 /// local (offline-first); la nube se sincroniza en el Sprint 4 (CU-44).
 class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
   final MilestoneLocalDataSource dataSource;
+
+  /// DAO de evidencias para el gate del CU-50 (paso 2: "verifica en la BD
+  /// que el hito contenga al menos una evidencia multimedia cargada").
+  /// Inyectable para que los tests compartan la misma BD que los hitos.
+  /// Si no se provee, la validación falla cerrado (cuenta cero evidencias).
+  final EvidenceLocalDataSource? evidenceDao;
 
   /// CU-30: escribe la fecha estimada en la obra (opcional; en tests se
   /// omite o se usa un fake).
@@ -26,9 +35,15 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
   /// perder el aviso en offline-first.
   final MilestoneOwnerNotifier ownerNotifier;
 
+  /// CU-60 (RF_08): Servicio de Audit Log — huella imborrable de las
+  /// transacciones críticas. Opcional (best-effort, transparente).
+  final AuditLogWriter? auditLog;
+
   MilestonesBloc({
     required this.dataSource,
+    this.evidenceDao,
     this.scheduleWriter,
+    this.auditLog,
     MilestoneOwnerNotifier? ownerNotifier,
   })  : ownerNotifier =
             ownerNotifier ?? const ConsoleMilestoneOwnerNotifier(),
@@ -58,6 +73,12 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
           duracionDias: event.duracionDias,
         );
         final cpm = await _recalculateCriticalPath(event.obraId);
+        // CU-60: huella de la transacción crítica.
+        await auditLog?.log(
+          accion: 'hito_creado',
+          detalle: 'nombre=${event.nombre}',
+          obraId: event.obraId,
+        );
         emit(await _loaded(event.obraId, cpm.schedules));
       } catch (e) {
         emit(MilestonesError(message: _message(e)));
@@ -105,6 +126,13 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
         } catch (e) {
           debugPrint('Aviso al propietario pendiente (obra ${current.obraId}): $e');
         }
+        // CU-60: huella de la transacción crítica.
+        await auditLog?.log(
+          accion: 'hito_modificado',
+          detalle:
+              'nombre=${updated.nombre} duracion=${updated.duracionDias}',
+          obraId: current.obraId,
+        );
         emit(await _loaded(current.obraId, cpm.schedules));
       } catch (e) {
         emit(MilestonesError(message: _message(e)));
@@ -150,12 +178,12 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
       }
     });
 
-    // CU-26: avanza a la siguiente fase (Pendiente → En Ejecución →
-    // Certificado). Al iniciar se ejecuta CU-28 (paso 2); el cambio se
-    // audita (paso 4, CU-60 transitorio) y se refresca la pantalla.
-    // Roadmap secuencial: al finalizar (certificar) un hito se recalcula la
-    // ruta para que el siguiente comience en secuencia y el fin estimado de
-    // la obra quede ajustado (CU-29/CU-30, igual que en el alta).
+    // CU-26: avanza a la siguiente fase (Pendiente → En Ejecución). El
+    // cambio se audita (paso 4, CU-60 transitorio) y se refresca la pantalla.
+    // El paso a "Certificado" ya NO corre por acá (RF_05, Sprint 5): el
+    // cierre formal se solicita con "Certificar Etapa" (CU-50) y atraviesa
+    // el flujo de certificación con doble firma; el avance directo queda
+    // bloqueado para evitar certificar sin firma ni evidencia validada.
     on<AdvanceMilestoneStatus>((event, emit) async {
       emit(MilestonesLoading());
       try {
@@ -166,6 +194,12 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
         final next = current.estado.next;
         if (next == null) {
           throw Exception('El hito ya está certificado.');
+        }
+        if (next == MilestoneStatus.certificado) {
+          throw Exception(
+            'El cierre formal se solicita con "Certificar Etapa": el hito '
+            'debe atravesar el flujo de certificación con doble firma (CU-50).',
+          );
         }
         // CU-28: solo se puede INICIAR si los predecesores están certificados.
         if (next == MilestoneStatus.enEjecucion) {
@@ -184,7 +218,55 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
         MilestoneAudit.logStatusChange(before: current, after: next);
         await dataSource.update(current.copyWith(estado: next));
         final cpm = await _recalculateCriticalPath(current.obraId);
+        // CU-60: huella de la transacción crítica.
+        await auditLog?.log(
+          accion: next == MilestoneStatus.enEjecucion
+              ? 'hito_iniciado'
+              : 'hito_certificado',
+          detalle: 'nombre=${current.nombre} estado: '
+              '${current.estado.label} → ${next.label}',
+          obraId: current.obraId,
+        );
         emit(await _loaded(current.obraId, cpm.schedules));
+      } catch (e) {
+        emit(MilestonesError(message: _message(e)));
+      }
+    });
+
+    // CU-50 (RF_05): solicitud de cierre formal de la etapa técnica.
+    // Paso 2: verifica en la BD que el hito contenga al menos una (1)
+    // evidencia multimedia cargada. Alt. 2.1/2.2: sin evidencia se bloquea
+    // el avance con el mensaje de la especificación y se retorna al detalle
+    // del hito. Si valida, emite MilestoneCertificationReady (poscondición:
+    // el hito entra en flujo de certificación) para que la UI ejecute el
+    // CU-51 (Visualizar Resumen) e inicie el proceso de doble firma.
+    on<RequestMilestoneCertification>((event, emit) async {
+      emit(MilestonesLoading());
+      try {
+        final current = await dataSource.getById(event.hitoId);
+        if (current == null) {
+          throw Exception('El hito ya no existe en la Hoja de Ruta.');
+        }
+        final evidenciasCount =
+            await evidenceDao?.countByHito(current.id) ?? 0;
+        final check = CertificationGuard.evaluate(
+          hito: current,
+          evidenciasCount: evidenciasCount,
+        );
+        if (!check.allowed) {
+          // Alt. 2.2: bloquea el avance e informa; el detalle del hito
+          // (Hoja de Ruta) se mantiene en pantalla con el mensaje.
+          emit(await _certificationBlocked(current, check.reason!));
+          return;
+        }
+        MilestoneAudit.logCertificationRequest(hito: current);
+        // CU-60: huella de la transacción crítica.
+        await auditLog?.log(
+          accion: 'certificacion_solicitada',
+          detalle: 'hito=${current.nombre}',
+          obraId: current.obraId,
+        );
+        emit(await _certificationReady(current));
       } catch (e) {
         emit(MilestonesError(message: _message(e)));
       }
@@ -218,6 +300,12 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
         // aún no existe; al llegar se suma aquí su chequeo antes del borrado.
         await dataSource.delete(current.id);
         final cpm = await _recalculateCriticalPath(current.obraId);
+        // CU-60: huella de la transacción crítica.
+        await auditLog?.log(
+          accion: 'hito_eliminado',
+          detalle: 'nombre=${current.nombre}',
+          obraId: current.obraId,
+        );
         emit(await _loaded(current.obraId, cpm.schedules));
       } catch (e) {
         emit(MilestonesError(message: _message(e)));
@@ -238,6 +326,38 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
       milestones: milestones,
       edges: edges,
       schedules: schedules ?? _safeSchedules(milestones, edges),
+    );
+  }
+
+  /// CU-50 Alt. 2.2: estado de bloqueo con la Hoja de Ruta intacta.
+  Future<MilestoneCertificationBlocked> _certificationBlocked(
+    Milestone hito,
+    String message,
+  ) async {
+    final milestones = await dataSource.listByObra(hito.obraId);
+    final edges = await dataSource.dependencyMap(hito.obraId);
+    return MilestoneCertificationBlocked(
+      hitoId: hito.id,
+      message: message,
+      milestones: milestones,
+      edges: edges,
+      schedules: _safeSchedules(milestones, edges),
+    );
+  }
+
+  /// CU-50 poscondición: hito autorizado, entra en flujo de certificación
+  /// (la Hoja de Ruta se reemite fresca para el detalle).
+  Future<MilestoneCertificationReady> _certificationReady(
+    Milestone hito,
+  ) async {
+    final milestones = await dataSource.listByObra(hito.obraId);
+    final edges = await dataSource.dependencyMap(hito.obraId);
+    return MilestoneCertificationReady(
+      hitoId: hito.id,
+      hitoNombre: hito.nombre,
+      milestones: milestones,
+      edges: edges,
+      schedules: _safeSchedules(milestones, edges),
     );
   }
 

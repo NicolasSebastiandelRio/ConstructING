@@ -7,11 +7,15 @@ import { UsersModule } from './users/users.module';
 import { WorksModule } from './works/works.module';
 import { AuthModule } from './auth/auth.module'; // <- Importar AuthModule
 import { SyncModule } from './sync/sync.module';
+import { CertificationsModule } from './certifications/certification.module';
+import { AuditLogsModule } from './audit-logs/audit-log.module';
 import { UserEntity } from './auth/user.entity';
 import { WorkEntity } from './works/entities/work.entity';
 import { WorkInvitationEntity } from './works/entities/work-invitation.entity';
 import { MilestoneSyncEntity } from './sync/milestone-sync.entity';
 import { EvidenceSyncEntity } from './sync/evidence-sync.entity';
+import { CertificationEntity } from './certifications/certification.entity';
+import { AuditLogEntity } from './audit-logs/audit-log.entity';
 
 @Module({
   imports: [
@@ -24,12 +28,12 @@ import { EvidenceSyncEntity } from './sync/evidence-sync.entity';
       useFactory: (configService: ConfigService): any => {
         const isTest = process.env.NODE_ENV === 'test';
 
-        if (isTest) {
+          if (isTest) {
           // Configuración ultrarrápida y aislada en memoria para pruebas E2E (QA-03)
           return {
             type: 'better-sqlite3', // <- Usamos el driver oficial soportado por TypeORM 0.3.x
             database: ':memory:',
-            entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity],
+            entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity, CertificationEntity, AuditLogEntity],
             synchronize: true,
             dropSchema: true,
           };
@@ -44,7 +48,7 @@ import { EvidenceSyncEntity } from './sync/evidence-sync.entity';
           username: configService.get<string>('DB_USER', 'postgres'),
           password: configService.get<string>('DB_PASSWORD', 'postgres'),
           database: configService.get<string>('DB_NAME', 'constructingsal'),
-          entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity],
+          entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity, CertificationEntity, AuditLogEntity],
           synchronize: true,
           ssl:
             configService.get<string>('DB_SSL', 'false') === 'true'
@@ -57,6 +61,8 @@ import { EvidenceSyncEntity } from './sync/evidence-sync.entity';
     WorksModule,
     AuthModule,
     SyncModule,
+    CertificationsModule,
+    AuditLogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

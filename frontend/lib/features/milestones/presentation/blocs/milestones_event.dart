@@ -88,6 +88,20 @@ class AdvanceMilestoneStatus extends MilestonesEvent {
   List<Object?> get props => [hitoId];
 }
 
+/// CU-50 paso 1: el Profesional selecciona "Certificar Etapa" y solicita el
+/// cierre formal de la etapa técnica (RF_05). El bloc valida la
+/// precondición (hito "En Ejecución") y la evidencia cargada (paso 2); si
+/// corresponde emite MilestoneCertificationReady para que la UI ejecute el
+/// CU-51 (Visualizar Resumen) e inicie el proceso de doble firma.
+class RequestMilestoneCertification extends MilestonesEvent {
+  final String hitoId;
+
+  const RequestMilestoneCertification({required this.hitoId});
+
+  @override
+  List<Object?> get props => [hitoId];
+}
+
 /// CU-27: elimina un hito sin progreso ni dependencias (previa confirmación
 /// en la UI, paso 1).
 class DeleteMilestoneRequested extends MilestonesEvent {

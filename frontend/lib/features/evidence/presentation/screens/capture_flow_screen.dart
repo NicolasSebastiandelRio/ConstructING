@@ -6,6 +6,8 @@ import 'package:video_player/video_player.dart';
 
 import '../../../../core/storage/local_database.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../audit/data/audit_log_writer.dart';
+import '../../../audit/data/datasources/audit_log_local_data_source.dart';
 import '../../../milestones/domain/entities/milestone.dart';
 import '../../data/datasources/evidence_local_data_source.dart';
 import '../../domain/entities/evidence.dart';
@@ -37,6 +39,9 @@ class CaptureFlowScreen extends StatefulWidget {
   final CaptureGateway? captureGateway;
   final LocationGateway? locationGateway;
 
+  /// CU-60: Servicio de Audit Log (inyectable en tests).
+  final AuditLogWriter? auditLog;
+
   const CaptureFlowScreen({
     super.key,
     required this.hito,
@@ -46,6 +51,7 @@ class CaptureFlowScreen extends StatefulWidget {
     this.evidencesDataSource,
     this.captureGateway,
     this.locationGateway,
+    this.auditLog,
   });
 
   @override
@@ -75,6 +81,13 @@ class _CaptureFlowScreenState extends State<CaptureFlowScreen> {
         obraId: widget.obraId,
         obraLatitud: widget.obraLatitud,
         obraLongitud: widget.obraLongitud,
+        // CU-60: huella imborrable de la carga de evidencia (solo producción;
+        // los tests inyectan su escritor propio).
+        auditLog: widget.auditLog ??
+            AuditLogWriter(
+              dataSource:
+                  AuditLogLocalDataSource(localDatabase: LocalDatabase()),
+            ),
       )..add(CaptureFlowInit()),
       child: const _CaptureFlowView(),
     );

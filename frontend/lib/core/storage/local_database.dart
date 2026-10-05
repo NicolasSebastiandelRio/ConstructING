@@ -21,14 +21,16 @@ class CacheStorageException implements Exception {
 /// en móvil, IndexedDB en web (misma API). En tests se inyecta
 /// `sqflite_common_ffi` en memoria.
 ///
-/// Esquema v3: `milestones` (hitos con flag `es_sincronizado` para el motor
+/// Esquema v5: `milestones` (hitos con flag `es_sincronizado` para el motor
 /// de sincronización, CU-44), `milestone_dependencies` (aristas predecesor →
-/// hito para CU-24 y la ruta crítica CU-29) y `evidences` (evidencias
+/// hito para CU-24 y la ruta crítica CU-29), `evidences` (evidencias
 /// periciales georreferenciadas de CU-32/33, con checksum CU-45 y flag
-/// `fuera_obra` del CU-35 soft-fail, Sprint 4).
+/// `fuera_obra` del CU-35 soft-fail, Sprint 4), `certifications` (sello
+/// SHA-256 del acta de conformidad, CU-59, PT-07) y `audit_log` (huella
+/// imborrable de las transacciones críticas, CU-60, RNF_S_03).
 class LocalDatabase {
   static const String fileName = 'constructing.db';
-  static const int schemaVersion = 3;
+  static const int schemaVersion = 5;
 
   static const String createMilestones = '''
 CREATE TABLE milestones(
@@ -77,6 +79,34 @@ CREATE TABLE evidences(
   updated_at TEXT NOT NULL
 )''';
 
+  /// Tabla de certificaciones (CU-59, RF_08/RNF_C_05, PT-07): el sello
+  /// SHA-256 inmutable del acta PDF consolidada — el documento legal queda
+  /// sellado lógicamente contra modificaciones post-firma.
+  static const String createCertifications = '''
+CREATE TABLE certifications(
+  acta_id TEXT PRIMARY KEY,
+  hito_id TEXT NOT NULL,
+  obra_id TEXT NOT NULL,
+  hash_sha256 TEXT NOT NULL,
+  firmante TEXT,
+  created_at TEXT NOT NULL
+)''';
+
+  /// Tabla de auditoría (CU-60, RF_08/RNF_S_03): huella permanente e
+  /// imborrable de las transacciones críticas (qué actor hizo qué acción,
+  /// a qué hora y dónde). Solo INSERT/SELECT: Update/Delete quedan
+  /// prohibidos por diseño (RNF_S_03).
+  static const String createAuditLog = '''
+CREATE TABLE audit_log(
+  id TEXT PRIMARY KEY,
+  usuario_id TEXT NOT NULL,
+  accion TEXT NOT NULL,
+  detalle TEXT,
+  obra_id TEXT,
+  coordenadas TEXT,
+  created_at TEXT NOT NULL
+)''';
+
   Database? _db;
 
   /// Instancia lazy compartida por la app.
@@ -106,12 +136,18 @@ CREATE TABLE evidences(
                 await db.execute(createMilestones);
                 await db.execute(createMilestoneDependencies);
                 await db.execute(createEvidences);
+                await db.execute(createCertifications);
+                await db.execute(createAuditLog);
                 await db.execute(
                     'CREATE INDEX idx_milestones_obra ON milestones(obra_id)');
                 await db.execute(
                     'CREATE INDEX idx_dependencies_hito ON milestone_dependencies(hito_id)');
                 await db.execute(
                     'CREATE INDEX idx_evidences_hito ON evidences(hito_id)');
+                await db.execute(
+                    'CREATE INDEX idx_certifications_hito ON certifications(hito_id)');
+                await db.execute(
+                    'CREATE INDEX idx_audit_log_obra ON audit_log(obra_id)');
               },
               onUpgrade: (db, oldVersion, newVersion) async {
                 // Migración v1 → v2: incorpora evidencias (Sprint 4).
@@ -125,6 +161,18 @@ CREATE TABLE evidences(
                 if (oldVersion == 2) {
                   await db.execute(
                       'ALTER TABLE evidences ADD COLUMN fuera_obra INTEGER NOT NULL DEFAULT 0');
+                }
+                // Migración v3 → v4: tabla de certificaciones (CU-59, PT-07).
+                if (oldVersion < 4) {
+                  await db.execute(createCertifications);
+                  await db.execute(
+                      'CREATE INDEX idx_certifications_hito ON certifications(hito_id)');
+                }
+                // Migración v4 → v5: tabla de auditoría (CU-60, RNF_S_03).
+                if (oldVersion < 5) {
+                  await db.execute(createAuditLog);
+                  await db.execute(
+                      'CREATE INDEX idx_audit_log_obra ON audit_log(obra_id)');
                 }
               },
             ),

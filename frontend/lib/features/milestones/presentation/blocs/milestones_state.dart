@@ -35,6 +35,48 @@ class MilestonesLoaded extends MilestonesState {
   List<Object?> get props => [milestones, edges, schedules];
 }
 
+/// CU-50 poscondición: el hito pasó la validación y entra en flujo de
+/// certificación. La UI conecta con el CU-51 (Visualizar Resumen) para
+/// iniciar el proceso de doble firma (RF_05). El estado del hito sigue
+/// "En Ejecución": pasa a "Certificado" al completar las firmas.
+/// Extiende MilestonesLoaded para que la Hoja de Ruta siga visible.
+class MilestoneCertificationReady extends MilestonesLoaded {
+  final String hitoId;
+  final String hitoNombre;
+
+  const MilestoneCertificationReady({
+    required this.hitoId,
+    required this.hitoNombre,
+    required super.milestones,
+    super.edges,
+    super.schedules,
+  });
+
+  @override
+  List<Object?> get props => [...super.props, hitoId, hitoNombre];
+}
+
+/// CU-50 Alt. 2.1/2.2: la solicitud de cierre se bloquea (sin evidencia o
+/// fuera de precondición). Extiende MilestonesLoaded para que el detalle del
+/// hito siga en pantalla mientras el mensaje se informa.
+class MilestoneCertificationBlocked extends MilestonesLoaded {
+  final String hitoId;
+
+  /// Mensaje exacto de la especificación (Alt. 2.2) o de precondición.
+  final String message;
+
+  const MilestoneCertificationBlocked({
+    required this.hitoId,
+    required this.message,
+    required super.milestones,
+    super.edges,
+    super.schedules,
+  });
+
+  @override
+  List<Object?> get props => [...super.props, hitoId, message];
+}
+
 class MilestonesError extends MilestonesState {
   final String message;
 

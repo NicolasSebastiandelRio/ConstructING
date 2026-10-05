@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../audit/data/audit_log_writer.dart';
 import '../../../milestones/domain/entities/milestone.dart';
 import '../../data/datasources/evidence_local_data_source.dart';
 import '../../domain/checksum/evidence_checksum.dart';
@@ -159,6 +160,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     this.obraLongitud,
     this.radioMetros = ClosenessValidator.defaultRadiusMeters,
     this.videoDurationReader = readVideoDuration,
+    this.auditLog,
   }) : super(CaptureFlowReady()) {
     on<CaptureFlowInit>(_onInit);
     on<CapturePhotoRequested>(_onPhoto);
@@ -167,6 +169,9 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     on<EvidenceDiscardRequested>(_onDiscard);
     on<EvidenceSaveRequested>(_onSave);
   }
+
+  /// CU-60 (RF_08): huella imborrable de la carga de evidencia. Opcional.
+  final AuditLogWriter? auditLog;
 
   final CaptureGateway captureGateway;
   final LocationGateway locationGateway;
@@ -424,6 +429,14 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
       // seguro en el teléfono a la espera de cobertura de red (CU-44).
       _draft = null;
       _nota = null;
+      // CU-60: huella de la transacción crítica, con las coordenadas
+      // actuales de la captura (RF_08, RNF_S_03).
+      await auditLog?.log(
+        accion: 'evidencia_cargada',
+        detalle: 'tipo=${draft.tipo.label} checksum=${draft.checksum.toLowerCase()}',
+        obraId: obraId,
+        coordenadas: '${draft.latitud},${draft.longitud}',
+      );
       emit(CaptureFlowSaved(
         message: draft.fueraDeObra
             ? 'Evidencia guardada. Su ubicación no coincide con la obra: '

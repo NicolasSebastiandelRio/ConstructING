@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/network/dio_client.dart';
 import '../../../../core/storage/local_database.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/entities/work_entity.dart';
@@ -7,6 +8,7 @@ import '../blocs/works_bloc.dart';
 import '../blocs/works_event.dart';
 import '../blocs/works_state.dart';
 import '../widgets/edit_work_modal.dart';
+import '../../../certification/data/datasources/acta_remote_data_source.dart';
 import '../../../milestones/presentation/widgets/milestones_section.dart';
 import '../../../milestones/data/datasources/estimated_end_writer.dart';
 import '../../../milestones/data/datasources/milestone_local_data_source.dart';
@@ -33,6 +35,10 @@ class WorkDetailScreen extends StatefulWidget {
 class _WorkDetailScreenState extends State<WorkDetailScreen> {
   bool get _isProfesional =>
       widget.userRole.toLowerCase().contains('profesional');
+
+  /// CU-54 paso 2: fuente del acta en el servidor central (PT-07).
+  late final ActaRemoteDataSource _actaRemoteSource =
+      ActaRemoteDataSource(dioClient: DioClient());
 
   @override
   void initState() {
@@ -356,6 +362,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                     MilestonesSection(
                       obraId: current.id,
                       isProfesional: _isProfesional,
+                      obraNombre: current.nombre,
                       obraFechaInicio: current.fechaInicio,
                       propietarioEmail: current.propietarioEmail,
                       propietarioNombre: current.propietarioNombre,
@@ -363,6 +370,8 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                       // cercanía de la evidencia.
                       obraLatitud: current.latitud,
                       obraLongitud: current.longitud,
+                      // CU-54: descarga del acta desde el servidor central.
+                      actaRemoteSource: _actaRemoteSource,
                       // CU-30: al recalcular se escribe la fecha estimada.
                       scheduleWriter: WorksApiEstimatedEndWriter(
                         works: context

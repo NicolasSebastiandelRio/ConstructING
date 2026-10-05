@@ -1,8 +1,18 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/storage/local_database.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../audit/data/audit_log_writer.dart';
+import '../../../audit/data/datasources/audit_log_local_data_source.dart';
+import '../../../certification/data/datasources/acta_remote_data_source.dart';
+import '../../../certification/gateway/acta_saver.dart';
+import '../../../certification/presentation/bloc/acta_download_cubit.dart';
+import '../../../certification/presentation/bloc/acta_download_state.dart';
+import '../../../evidence/data/datasources/evidence_local_data_source.dart';
 import '../../../evidence/presentation/screens/capture_flow_screen.dart';
 import '../../../evidence/presentation/screens/evidence_gallery_screen.dart';
 import '../../data/datasources/estimated_end_writer.dart';
@@ -39,9 +49,21 @@ class MilestonesSection extends StatelessWidget {
   /// DAO inyectable (tests); en producción se crea sobre la BD local real.
   final MilestoneLocalDataSource? dataSource;
 
+  /// DAO de evidencias para el gate del CU-50 (RF_05): la ficha lo provee
+  /// compartiendo la BD local; los tests que no lo inyectan dejan el gate
+  /// en fail-closed (sin evidencia registrada no se certifica).
+  final EvidenceLocalDataSource? evidenceDataSource;
+
+  /// CU-54 paso 2: fuente del acta en el servidor central (Cloud Storage).
+  /// Opcional: sin ella la descarga resuelve solo por caché local.
+  final ActaRemoteDataSource? actaRemoteSource;
+
   /// CU-30: escribe la fecha estimada en la obra (opcional; la ficha real
   /// lo provee, en tests se omite o se usa un fake).
   final EstimatedEndWriter? scheduleWriter;
+
+  /// Datos maestros del proyecto para el acta (CU-51/CU-56, opcional).
+  final String? obraNombre;
 
   /// Inicio de la obra (yyyy-MM-dd) para anclar el roadmap a fechas
   /// concretas. Si se omite, se muestran días relativos.
@@ -60,11 +82,18 @@ class MilestonesSection extends StatelessWidget {
   /// Notificador inyectable (tests); por defecto traza de consola.
   final MilestoneOwnerNotifier? ownerNotifier;
 
+  /// CU-60: Servicio de Audit Log (inyectable en tests; producción crea el
+  /// escritor sobre la BD local real).
+  final AuditLogWriter? auditLog;
+
   const MilestonesSection({
     super.key,
     required this.obraId,
     required this.isProfesional,
     this.dataSource,
+    this.evidenceDataSource,
+    this.actaRemoteSource,
+    this.obraNombre,
     this.scheduleWriter,
     this.obraFechaInicio,
     this.propietarioEmail,
@@ -72,6 +101,7 @@ class MilestonesSection extends StatelessWidget {
     this.obraLatitud,
     this.obraLongitud,
     this.ownerNotifier,
+    this.auditLog,
   });
 
   /// Ancla de la ruta: acepta ISO (yyyy-MM-dd[THH:mm...]) y el formato
@@ -104,6 +134,22 @@ class MilestonesSection extends StatelessWidget {
       create: (_) => MilestonesBloc(
         dataSource: dataSource ??
             MilestoneLocalDataSource(localDatabase: LocalDatabase()),
+        // CU-50: en producción (sin DAO falso) se abre la BD local real para
+        // validar la evidencia del hito; con DAO inyectado se respeta el
+        // proveedor de los tests (null → fail-closed).
+        evidenceDao: dataSource == null
+            ? (evidenceDataSource ??
+                EvidenceLocalDataSource(localDatabase: LocalDatabase()))
+            : evidenceDataSource,
+        // CU-60: huella imborrable de las transacciones críticas de hitos
+        // (solo producción: los tests inyectan su escritor propio).
+        auditLog: dataSource == null
+            ? (auditLog ??
+                AuditLogWriter(
+                  dataSource: AuditLogLocalDataSource(
+                      localDatabase: LocalDatabase()),
+                ))
+            : auditLog,
         scheduleWriter: scheduleWriter,
         ownerNotifier: ownerNotifier,
       )..add(LoadMilestones(obraId: obraId)),
@@ -252,6 +298,11 @@ class MilestonesSection extends StatelessWidget {
                                 : null,
                             onViewEvidence: () => _openEvidenceGallery(
                                 context, indexed[i].value),
+                            onDownloadActa: indexed[i].value.estado ==
+                                    MilestoneStatus.certificado
+                                ? () => _downloadActa(
+                                    context, indexed[i].value)
+                                : null,
                           ),
                         ),
                     ],
@@ -298,13 +349,18 @@ class MilestonesSection extends StatelessWidget {
     );
   }
 
-  /// CU-26 paso 1: confirma el avance a la siguiente fase operativa.
+  /// CU-26/CU-50 paso 1: confirma el avance/cierre. El diálogo recibe los
+  /// datos maestros y el rol del firmante para el acta (CU-51/CU-56).
   void _openAdvanceDialog(BuildContext context, Milestone milestone) {
     showDialog(
       context: context,
       builder: (_) => BlocProvider.value(
         value: BlocProvider.of<MilestonesBloc>(context),
-        child: AdvanceStatusDialog(hito: milestone),
+        child: AdvanceStatusDialog(
+          hito: milestone,
+          obraNombre: obraNombre,
+          firmante: isProfesional ? 'Profesional' : 'Propietario',
+        ),
       ),
     );
   }
@@ -390,6 +446,44 @@ class MilestonesSection extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// CU-54 (RF_05): descarga el acta del hito certificado. El resultado
+  /// (copia offline o error) se informa por SnackBar.
+  void _downloadActa(BuildContext context, Milestone milestone) {
+    final messenger = ScaffoldMessenger.of(context);
+    final cubit = ActaDownloadCubit(
+      milestoneDao: dataSource ??
+          MilestoneLocalDataSource(localDatabase: LocalDatabase()),
+      readCachedActa: (hitoId) => readLocalActa(hitoId: hitoId),
+      saveActa: ({required Uint8List bytes, required String fileName}) =>
+          saveActaFile(bytes: bytes, fileName: fileName),
+      remoteActa: actaRemoteSource?.fetchActaPdf,
+    );
+    late final StreamSubscription<ActaDownloadState> sub;
+    sub = cubit.stream.listen((state) {
+      if (state is ActaDownloaded) {
+        sub.cancel();
+        cubit.close();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+                'Acta "${state.fileName}" guardada (${state.origen}): ${state.ubicacion}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (state is ActaDownloadError) {
+        sub.cancel();
+        cubit.close();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(state.message),
+            backgroundColor: AppTheme.primaryRed,
+          ),
+        );
+      }
+    });
+    cubit.download(hitoId: milestone.id);
   }
 }
 
@@ -550,6 +644,7 @@ class _MilestoneTile extends StatelessWidget {
   final VoidCallback onDependencies;
   final VoidCallback? onCaptureEvidence;
   final VoidCallback onViewEvidence;
+  final VoidCallback? onDownloadActa;
 
   /// Etiqueta de secuencia del roadmap ("HITO 1 DE 3").
   final String? sequenceLabel;
@@ -570,6 +665,7 @@ class _MilestoneTile extends StatelessWidget {
     required this.onViewEvidence,
     required this.scheduleView,
     this.onCaptureEvidence,
+    this.onDownloadActa,
     this.sequenceLabel,
   });
 
@@ -724,8 +820,22 @@ class _MilestoneTile extends StatelessWidget {
         onPressed: onViewEvidence,
       ),
     ];
+    // CU-54 paso 1: descargar el acta de conformidad del hito finalizado
+    // (actor Cualquiera, RF_05).
+    if (onDownloadActa != null) {
+      actions.add(IconButton(
+        tooltip: 'Descargar Acta PDF',
+        icon: const Icon(Icons.picture_as_pdf_outlined,
+            color: AppTheme.accentGold),
+        onPressed: onDownloadActa,
+      ));
+    }
     // CU-31: registrar evidencia in situ (solo Profesional, RF_03).
-    if (isProfesional && onCaptureEvidence != null) {
+    // CU-57: los hitos certificados tienen su evidencia congelada — sin
+    // nuevas capturas.
+    if (isProfesional &&
+        onCaptureEvidence != null &&
+        milestone.estado != MilestoneStatus.certificado) {
       actions.add(IconButton(
         tooltip: 'Registrar evidencia',
         icon: const Icon(Icons.photo_camera_outlined,
@@ -747,13 +857,13 @@ class _MilestoneTile extends StatelessWidget {
         onPressed: onEdit,
       ));
     }
-    // CU-26 paso 1: avanza a la siguiente fase (solo Profesional y solo si
-    // hay fase siguiente; los certificados no avanzan).
+    // CU-26/CU-50 paso 1: Iniciar (pendiente) o Certificar Etapa (en
+    // Ejecución, RF_05); los certificados no ofrecen acción.
     if (isProfesional && onAdvance != null) {
       actions.add(IconButton(
         tooltip: milestone.estado == MilestoneStatus.pendiente
             ? 'Iniciar hito'
-            : 'Certificar hito',
+            : 'Certificar etapa',
         icon: Icon(
           milestone.estado == MilestoneStatus.pendiente
               ? Icons.play_arrow_outlined
