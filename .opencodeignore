@@ -1,0 +1,3 @@
+# Ignorar PDFs para no consumir tokens de contexto automáticamente
+docs/phase_one_frozen/*.pdf
+*.pdf
