@@ -7,6 +7,7 @@ import '../../../audit/data/audit_log_writer.dart';
 import '../../../milestones/domain/entities/milestone.dart';
 import '../../data/datasources/evidence_local_data_source.dart';
 import '../../domain/checksum/evidence_checksum.dart';
+import '../../domain/crypto/evidence_hash_service.dart';
 import '../../domain/datastamp/datastamp.dart';
 import '../../domain/entities/evidence.dart';
 import '../../domain/geo/closeness_validator.dart';
@@ -161,6 +162,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     this.radioMetros = ClosenessValidator.defaultRadiusMeters,
     this.videoDurationReader = readVideoDuration,
     this.auditLog,
+    this.hashService = const EvidenceHashService(),
   }) : super(CaptureFlowReady()) {
     on<CaptureFlowInit>(_onInit);
     on<CapturePhotoRequested>(_onPhoto);
@@ -172,6 +174,11 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
 
   /// CU-60 (RF_08): huella imborrable de la carga de evidencia. Opcional.
   final AuditLogWriter? auditLog;
+
+  /// CU-58 (RF_08/RNF_S_03): Motor Criptográfico invocado durante el
+  /// almacenamiento (paso 2). Inyectable en tests; producción usa el motor
+  /// real (SHA-256 sobre el binario en memoria).
+  final EvidenceHashService hashService;
 
   final CaptureGateway captureGateway;
   final LocationGateway locationGateway;
@@ -409,6 +416,11 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     }
     emit(const CaptureFlowProcessing(message: 'Guardando en el caché local...'));
     try {
+      // CU-58 pasos 2+4: el Motor Criptográfico firma el binario en memoria
+      // durante el almacenamiento y el hash queda asociado al registro.
+      final hash = await hashService.hashBytes(
+        Uint8List.fromList(draft.bytes),
+      );
       await evidences.create(
         hitoId: hito.id,
         obraId: obraId,
@@ -421,7 +433,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
         fechaCaptura: draft.fechaCaptura,
         duracionSeg: draft.duracionSeg,
         tamanoBytes: draft.bytes.length,
-        checksum: draft.checksum,
+        checksum: hash,
         marcaTexto: draft.marcaTexto,
         fueraDeObra: draft.fueraDeObra,
       );
@@ -433,7 +445,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
       // actuales de la captura (RF_08, RNF_S_03).
       await auditLog?.log(
         accion: 'evidencia_cargada',
-        detalle: 'tipo=${draft.tipo.label} checksum=${draft.checksum.toLowerCase()}',
+        detalle: 'tipo=${draft.tipo.label} checksum=${hash.toLowerCase()}',
         obraId: obraId,
         coordenadas: '${draft.latitud},${draft.longitud}',
       );
