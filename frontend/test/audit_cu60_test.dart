@@ -20,6 +20,7 @@ import 'package:constructing_mobile/features/evidence/presentation/bloc/capture_
 import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
 import 'package:constructing_mobile/features/milestones/presentation/blocs/milestones_bloc.dart';
 import 'package:constructing_mobile/features/milestones/presentation/blocs/milestones_event.dart';
+import 'package:constructing_mobile/features/milestones/presentation/blocs/milestones_state.dart';
 
 import 'milestones_test_helpers.dart';
 
@@ -47,11 +48,11 @@ class _FakeRemoteAudit implements AuditLogRemoteDataSource {
   }) async {
     if (fallar) return null;
     enviados[registro['accion'] as String] = registro;
-    return const AuditLogServerRecord(
+    return AuditLogServerRecord(
       id: 'server-1',
       usuarioId: 'server-user',
       accion: 'eco',
-      createdAt: null as dynamic,
+      createdAt: DateTime.utc(2026, 10, 5),
     );
   }
 }
@@ -103,6 +104,7 @@ void main() {
         id: 'r2',
         usuarioId: 'u1',
         accion: 'acta_sellada',
+        obraId: 'w1',
         createdAt: DateTime.utc(2026, 10, 5, 13, 0),
       ));
       expect((await ctx.dao.listAll()).first.accion, 'acta_sellada');
@@ -345,7 +347,8 @@ class _NoLocationGateway implements LocationGateway {
   const _NoLocationGateway();
 
   @override
-  Future<DevicePosition> getCurrentPosition({Duration timeout}) async =>
+  Future<DevicePosition> getCurrentPosition(
+      {Duration timeout = const Duration(seconds: 5)}) async =>
       const DevicePosition(
           latitud: -34.6, longitud: -58.4, precisionMetros: 5);
 }

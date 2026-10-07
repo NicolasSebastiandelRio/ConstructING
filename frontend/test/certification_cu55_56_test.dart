@@ -235,6 +235,7 @@ void main() {
       Uint8List? persistedBytes;
       String? persistedName;
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au55'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
         firmante: 'Profesional',
@@ -291,6 +292,7 @@ void main() {
           .create(obraId: 'w1', nombre: 'Hito', duracionDias: 3);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au55'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
         actaGenerator: (payload) async => throw Exception('Motor caído'),
@@ -331,6 +333,7 @@ void main() {
           .update(hito.copyWith(estado: MilestoneStatus.enEjecucion));
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au55'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
         actaGenerator: (payload) async =>

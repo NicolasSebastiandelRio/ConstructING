@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -11,12 +11,12 @@ import 'package:constructing_mobile/features/evidence/presentation/bloc/capture_
 import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
 import 'milestones_test_helpers.dart';
 
-/// PNG 1x1 válido: permite que el estampado CU-36 tenga éxito en tests y
+/// PNG 1x1 v�lido: permite que el estampado CU-36 tenga �xito en tests y
 /// que se ejecute el persistFinal (CU-45 Sprint 4).
 const pngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-/// Fakes de hardware para el flujo de captura (cámara aislada CU-37 y
+/// Fakes de hardware para el flujo de captura (c�mara aislada CU-37 y
 /// GPS CU-34).
 class FakeCaptureGateway implements CaptureGateway {
   FakeCaptureGateway({this.onCapture, Uint8List? bytes})
@@ -43,7 +43,7 @@ class FakeCaptureGateway implements CaptureGateway {
     required String originalPath,
   }) async {
     // Simula el persist de los bytes estampados: la "ruta" nueva describe
-    // los bytes recibidos (verificación de coherencia CU-45).
+    // los bytes recibidos (verificaci�n de coherencia CU-45).
     final fake = 'blob://local/persisted/${persistedPaths.length}';
     persistedPaths.add(fake);
     return fake;
@@ -59,7 +59,7 @@ class DeniedCaptureGateway implements CaptureGateway {
   @override
   Future<String> capture({required EvidenceType tipo}) async {
     throw const CameraPermissionException(
-      'Debe otorgar permisos de cámara para continuar',
+      'Debe otorgar permisos de c�mara para continuar',
     );
   }
 
@@ -113,6 +113,7 @@ void main() {
   }) async {
     final dao = await openEvidenceDao('capture');
     final bloc = CaptureFlowBloc(
+      auditLog: await openTestAuditLogWriter('aucap2'),
       captureGateway: captureGateway ?? FakeCaptureGateway(),
       locationGateway: locationGateway ??
           FakeLocationGateway(
@@ -154,12 +155,12 @@ void main() {
 
     final evidences = await dao.listByHito('h1');
     // El archivo persistido describe los bytes estampados sobre los que se
-    // calculó el checksum (sin esto, CU-45 da "corrupted" en bucle).
+    // calcul� el checksum (sin esto, CU-45 da "corrupted" en bucle).
     expect(evidences.single.archivo, startsWith('blob://local/persisted'));
     expect(evidences.single.archivo, isNot('blob://local/fake'));
   });
 
-  test('CU-31 Alt. 2.1/2.2: permiso de cámara denegado → alerta exacta',
+  test('CU-31 Alt. 2.1/2.2: permiso de c�mara denegado ? alerta exacta',
       () async {
     final (bloc, _) = await buildBloc(
       captureGateway: const DeniedCaptureGateway(),
@@ -171,7 +172,7 @@ void main() {
         isA<CaptureFlowFailure>().having(
           (s) => s.message,
           'message',
-          'Debe otorgar permisos de cámara para continuar',
+          'Debe otorgar permisos de c�mara para continuar',
         ),
       ]),
     );
@@ -179,11 +180,11 @@ void main() {
     await expectation;
   });
 
-  test('CU-32/CU-34 Alt. 4.2: sin señal GPS aborta la captura', () async {
+  test('CU-32/CU-34 Alt. 4.2: sin se�al GPS aborta la captura', () async {
     final (bloc, _) = await buildBloc(
       locationGateway: const FakeLocationGateway(
         error: const GeolocationException(
-          'No se pudo obtener la ubicación del dispositivo.',
+          'No se pudo obtener la ubicaci�n del dispositivo.',
         ),
       ),
     );
@@ -194,7 +195,7 @@ void main() {
         isA<CaptureFlowFailure>().having(
           (s) => s.message,
           'message',
-          'No se pudo obtener la ubicación del dispositivo.',
+          'No se pudo obtener la ubicaci�n del dispositivo.',
         ),
       ]),
     );
@@ -203,7 +204,7 @@ void main() {
   });
 
   test(
-      'CU-35 soft-fail (Sprint 4): fuera de los límites NO aborta; el borrador '
+      'CU-35 soft-fail (Sprint 4): fuera de los l�mites NO aborta; el borrador '
       'queda marcado fueraDeObra y se guarda con el flag', () async {
     final (bloc, dao) = await buildBloc(
       locationGateway: FakeLocationGateway(
@@ -228,7 +229,7 @@ void main() {
     bloc.add(CapturePhotoRequested());
     await expectation;
 
-    // El guardado continúa pese a la no coincidencia de ubicación.
+    // El guardado contin�a pese a la no coincidencia de ubicaci�n.
     final saved = expectLater(
       bloc.stream,
       emitsInOrder([isA<CaptureFlowProcessing>(), isA<CaptureFlowSaved>()]),
@@ -268,10 +269,11 @@ void main() {
   });
 
   test(
-      'CU-35 soft-fail sin ancla de obra (CU-15 sin coordenadas): también '
+      'CU-35 soft-fail sin ancla de obra (CU-15 sin coordenadas): tambi�n '
       'queda etiquetada y se guarda', () async {
     final dao = await openEvidenceDao('capture_no_anchor');
     final bloc = CaptureFlowBloc(
+      auditLog: await openTestAuditLogWriter('aucap2'),
       captureGateway: FakeCaptureGateway(),
       locationGateway: FakeLocationGateway(
         position: const DevicePosition(
@@ -283,7 +285,7 @@ void main() {
       evidences: dao,
       hito: hito,
       obraId: 'w1',
-      obraLatitud: null, // obra sin ancla geográfica
+      obraLatitud: null, // obra sin ancla geogr�fica
       obraLongitud: null,
     );
     addTearDown(bloc.close);
@@ -312,7 +314,7 @@ void main() {
   });
 
   test(
-      'CU-32 flujo completo: captura → CU-34 → CU-35 → CU-36 → guardar (CU-42)',
+      'CU-32 flujo completo: captura ? CU-34 ? CU-35 ? CU-36 ? guardar (CU-42)',
       () async {
     final (bloc, dao) = await buildBloc();
     final expectation = expectLater(
@@ -329,7 +331,7 @@ void main() {
     bloc.add(CapturePhotoRequested());
     await expectation;
 
-    // CU-39 punto de extensión: nota técnica vinculada en memoria temporal.
+    // CU-39 punto de extensi�n: nota t�cnica vinculada en memoria temporal.
     bloc.add(const EvidenceNoteChanged(nota: 'Fisura menor en viga V3'));
 
     final saved = expectLater(
@@ -349,7 +351,7 @@ void main() {
     expect(evidences.single.marcaTexto, contains('ConstructING'));
   });
 
-  test('CU-33/CU-38: video corto capturado y guardado en caché', () async {
+  test('CU-33/CU-38: video corto capturado y guardado en cach�', () async {
     final (bloc, dao) = await buildBloc(
       videoDuration: () => 20.0,
     );
@@ -376,7 +378,7 @@ void main() {
     expect(evidences.single.esSincronizado, isFalse);
   });
 
-  test('CU-38 Alt. 4.2: video que supera 30 s → alerta exacta sin guardar',
+  test('CU-38 Alt. 4.2: video que supera 30 s ? alerta exacta sin guardar',
       () async {
     final (bloc, dao) = await buildBloc(
       videoDuration: () => 40.0,
@@ -395,7 +397,7 @@ void main() {
     bloc.add(RecordVideoRequested());
     await expectation;
 
-    // Poscondición Alt.: no queda registro persistido.
+    // Poscondici�n Alt.: no queda registro persistido.
     expect(await dao.listByHito('h1'), isEmpty);
   });
 
@@ -412,7 +414,7 @@ void main() {
     bloc.add(EvidenceDiscardRequested());
     await discarded;
 
-    // Poscondición CU-41: memoria liberada, sin archivos basura (nada persistido).
+    // Poscondici�n CU-41: memoria liberada, sin archivos basura (nada persistido).
     expect(await dao.listByHito('h1'), isEmpty);
   });
 }

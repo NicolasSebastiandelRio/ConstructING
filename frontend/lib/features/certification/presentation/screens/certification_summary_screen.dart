@@ -36,6 +36,11 @@ class CertificationSummaryScreen extends StatefulWidget {
   /// "Propietario" (default: Profesional).
   final String? firmante;
 
+  /// CU-57 (doble firma, PT-07): la conformidad es colegiada — la primera
+  /// firma queda en espera de la segunda parte antes del sellado. Los tests
+  /// de firma simple la inyectan en false.
+  final bool requiereDobleFirma;
+
   /// DAO inyectables (tests); en producción se crean sobre la BD local real.
   final MilestoneLocalDataSource? milestoneDao;
   final EvidenceLocalDataSource? evidenceDao;
@@ -59,7 +64,7 @@ class CertificationSummaryScreen extends StatefulWidget {
     required this.hitoId,
     this.obraNombre,
     this.firmante,
-    this.milestoneDao,
+    this.requiereDobleFirma = true,    this.milestoneDao,
     this.evidenceDao,
     this.actaGenerator,
     this.persistActa,
@@ -85,6 +90,7 @@ class _CertificationSummaryScreenState
       evidenceDao: widget.evidenceDao ??
           EvidenceLocalDataSource(localDatabase: LocalDatabase()),
       firmante: widget.firmante ?? 'Profesional',
+      requiereDobleFirma: widget.requiereDobleFirma,
       actaGenerator: widget.actaGenerator,
       // CU-56 paso 4: el acta compilada queda en el caché local, en la
       // convención de nombres que localiza el CU-54.
@@ -181,6 +187,10 @@ class _SummaryBody extends StatelessWidget {
         state is CertificationSignatureCaptured
             ? state as CertificationSignatureCaptured
             : null;
+    final pendiente =
+        state is CertificationSecondSignaturePending
+            ? state as CertificationSecondSignaturePending
+            : null;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -231,6 +241,43 @@ class _SummaryBody extends StatelessWidget {
                   color: AppTheme.primaryRed,
                   fontSize: 12,
                   fontWeight: FontWeight.bold),
+            ),
+          ),
+        if (pendiente != null)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.accentGold.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+              border:
+                  Border.all(color: AppTheme.accentGold.withValues(alpha: 0.6)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'CU-57 · Firma de ${pendiente.primerFirmante} registrada. '
+                  'La conformidad es colegiada: falta la firma de '
+                  '${CertificationBloc.otraParte(pendiente.primerFirmante)} '
+                  'para sellar el acta y congelar el hito.',
+                  style: TextStyle(
+                      color: AppTheme.accentGold,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold),
+                ),
+                if (pendiente.message != null && pendiente.message!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      pendiente.message!,
+                      style: const TextStyle(
+                          color: AppTheme.primaryRed,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ),
+              ],
             ),
           ),
         if (captured != null)

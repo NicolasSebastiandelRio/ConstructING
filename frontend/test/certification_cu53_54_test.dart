@@ -68,6 +68,7 @@ void main() {
           .update(hito.copyWith(estado: MilestoneStatus.enEjecucion));
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au53'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -114,6 +115,7 @@ void main() {
           .create(obraId: 'w1', nombre: 'Hito', duracionDias: 3);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au53'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );

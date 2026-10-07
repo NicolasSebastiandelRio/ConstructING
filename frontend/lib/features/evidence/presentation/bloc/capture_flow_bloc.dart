@@ -161,7 +161,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     this.obraLongitud,
     this.radioMetros = ClosenessValidator.defaultRadiusMeters,
     this.videoDurationReader = readVideoDuration,
-    this.auditLog,
+    required this.auditLog,
     this.hashService = const EvidenceHashService(),
   }) : super(CaptureFlowReady()) {
     on<CaptureFlowInit>(_onInit);
@@ -172,8 +172,10 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     on<EvidenceSaveRequested>(_onSave);
   }
 
-  /// CU-60 (RF_08): huella imborrable de la carga de evidencia. Opcional.
-  final AuditLogWriter? auditLog;
+  /// CU-60 (RF_08): huella imborrable de la carga de evidencia. Obligatorio
+  /// en producción (DI): la huella no es omitible — cada transacción
+  /// crítica genera su fila en la tabla inmutable de auditoría.
+  final AuditLogWriter auditLog;
 
   /// CU-58 (RF_08/RNF_S_03): Motor Criptográfico invocado durante el
   /// almacenamiento (paso 2). Inyectable en tests; producción usa el motor
@@ -442,8 +444,9 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
       _draft = null;
       _nota = null;
       // CU-60: huella de la transacción crítica, con las coordenadas
-      // actuales de la captura (RF_08, RNF_S_03).
-      await auditLog?.log(
+      // actuales de la captura (RF_08, RNF_S_03). Obligatorio: la huella
+      // no es omitible.
+      await auditLog.log(
         accion: 'evidencia_cargada',
         detalle: 'tipo=${draft.tipo.label} checksum=${hash.toLowerCase()}',
         obraId: obraId,

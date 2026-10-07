@@ -57,6 +57,61 @@ class CertificationSignatureRejected extends CertificationSummaryReady {
   List<Object?> get props => [...super.props, message];
 }
 
+/// CU-52 paso 2 / CU-57 (doble firma): la primera firma fue validada y
+/// capturada; el lienzo se limpió de nuevo (CU-53) para que la otra parte
+/// otorgue su conformidad. Al confirmar el segundo trazo, el acta se
+/// compila colegiada (CU-56), se sella (CU-59) y se congelan los registros.
+class CertificationSecondSignaturePending extends CertificationSummaryReady {
+  /// Rol que firmó primero ("Profesional" o "Propietario").
+  final String primerFirmante;
+
+  final List<SignatureStroke> trazosPrimeraFirma;
+  final StrokeMetadata metadatosPrimeraFirma;
+  final DateTime fechaPrimeraConformidad;
+
+  /// Mensaje de advertencia para la UI (p. ej. rechazo del trazo de la
+  /// segunda parte por longitud mínima, Alt. CU-52 2.1/2.2).
+  final String? message;
+
+  const CertificationSecondSignaturePending({
+    required this.primerFirmante,
+    required this.trazosPrimeraFirma,
+    required this.metadatosPrimeraFirma,
+    required this.fechaPrimeraConformidad,
+    required super.hito,
+    required super.evidencias,
+    this.message,
+    List<SignatureStroke>? strokes,
+  }) : super(strokes: strokes ?? const []);
+
+  /// Conserva la identidad de la etapa pendiente al acumular trazos del
+  /// lienzo (el buffer de la segunda parte convive con la primera firma).
+  @override
+  CertificationSecondSignaturePending copyWith({
+    List<SignatureStroke>? strokes,
+  }) =>
+      CertificationSecondSignaturePending(
+        primerFirmante: primerFirmante,
+        trazosPrimeraFirma: trazosPrimeraFirma,
+        metadatosPrimeraFirma: metadatosPrimeraFirma,
+        fechaPrimeraConformidad: fechaPrimeraConformidad,
+        hito: hito,
+        evidencias: evidencias,
+        message: message,
+        strokes: strokes ?? this.strokes,
+      );
+
+  @override
+  List<Object?> get props => [
+        ...super.props,
+        primerFirmante,
+        trazosPrimeraFirma,
+        metadatosPrimeraFirma,
+        fechaPrimeraConformidad,
+        message,
+      ];
+}
+
 /// CU-52 paso 2: trazo validado y conformidad técnica capturada; el acta
 /// quedó generada (CU-55 Metadatos + CU-56 PDF) en el [actaPath] del caché
 /// local (accesible por el CU-54) y sellada criptográficamente (CU-59:

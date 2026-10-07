@@ -11,6 +11,7 @@ import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_state.dart';
 import 'features/auth/presentation/screens/welcome_screen.dart';
 import 'features/evidence/data/datasources/evidence_local_data_source.dart';
+import 'features/evidence/domain/crypto/secure_erase.dart';
 import 'features/evidence/gateway/capture_gateway.dart';
 import 'features/milestones/data/datasources/milestone_local_data_source.dart';
 import 'features/sync/data/datasources/sync_remote_data_source.dart';
@@ -51,6 +52,10 @@ void main() {
     evidences: evidenceDao,
     remote: HttpSyncRemoteDataSource(dioClient: dioClient),
     evidenceReader: (path) => captureGateway.readBytes(path),
+    // CU-59 (PT-07): borrado seguro del binario local post-sincronización
+    // (re-escritura con patrón + eliminación, RNF_C_05).
+    secureEraser: (archivo) async =>
+        const SecureEraseService().eraseFile(archivo),
   );
 
   runApp(

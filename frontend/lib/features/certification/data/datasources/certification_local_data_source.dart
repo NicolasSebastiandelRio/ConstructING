@@ -10,6 +10,11 @@ class CertificationRecord extends Equatable {
   final String obraId;
   final String hashSha256;
   final String? firmante;
+
+  /// Segundo actor de la conformidad colegiada (CU-57): si el acta lleva
+  /// doble firma, aquí queda el rol de la otra parte ("Propietario" o
+  /// "Profesional", según quién firmó primero).
+  final String? firmante2;
   final DateTime createdAt;
 
   const CertificationRecord({
@@ -18,6 +23,7 @@ class CertificationRecord extends Equatable {
     required this.obraId,
     required this.hashSha256,
     this.firmante,
+    this.firmante2,
     required this.createdAt,
   });
 
@@ -27,6 +33,7 @@ class CertificationRecord extends Equatable {
         'obra_id': obraId,
         'hash_sha256': hashSha256,
         'firmante': firmante,
+        'firmante2': firmante2,
         'created_at': createdAt.toUtc().toIso8601String(),
       };
 
@@ -37,6 +44,7 @@ class CertificationRecord extends Equatable {
         obraId: row['obra_id'] as String,
         hashSha256: (row['hash_sha256'] as String?) ?? '',
         firmante: row['firmante'] as String?,
+        firmante2: row['firmante2'] as String?,
         createdAt:
             DateTime.tryParse(row['created_at'] as String? ?? '') ??
                 DateTime.now(),
@@ -44,7 +52,7 @@ class CertificationRecord extends Equatable {
 
   @override
   List<Object?> get props =>
-      [actaId, hitoId, obraId, hashSha256, firmante, createdAt];
+      [actaId, hitoId, obraId, hashSha256, firmante, firmante2, createdAt];
 }
 
 /// Acceso tipado a la tabla de certificaciones en la BD local (CU-59).

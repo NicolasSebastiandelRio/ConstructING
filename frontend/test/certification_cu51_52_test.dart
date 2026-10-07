@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:constructing_mobile/core/storage/local_database.dart';
+import 'package:constructing_mobile/features/audit/data/audit_log_writer.dart';
+import 'package:constructing_mobile/features/audit/data/datasources/audit_log_local_data_source.dart';
 import 'package:constructing_mobile/features/certification/data/datasources/certification_local_data_source.dart';
 import 'package:constructing_mobile/features/certification/domain/acta_payload.dart';
 import 'package:constructing_mobile/features/certification/domain/entities/signature_stroke.dart';
@@ -146,6 +148,27 @@ class FakeCertificationDao implements CertificationLocalDataSource {
   Future<CertificationRecord?> findByHito(String hitoId) async => null;
 }
 
+/// DAO de auditoría que falla rápido: los widget tests no disponen de BD
+/// real; el writer es best-effort (la huella no interrumpe el flujo).
+class _AuditDaoFailFast implements AuditLogLocalDataSource {
+  @override
+  Future<AuditLogRecord> insert(AuditLogRecord record) async {
+    throw const CacheStorageException('sin BD local en widget tests');
+  }
+
+  @override
+  Future<List<AuditLogRecord>> listByObra(String obraId) async => const [];
+
+  @override
+  Future<List<AuditLogRecord>> listAll() async => const [];
+}
+
+/// Escritor de auditoría fail-fast para widget tests.
+final AuditLogWriter fakeAuditWriter = AuditLogWriter(
+  dataSource: _AuditDaoFailFast(),
+  userIdReader: () async => 'widget-user',
+);
+
 void main() {
   group('CertificationBloc CU-51 - Visualizar Resumen a Certificar', () {
     test('Flujo Normal: consulta en BD fechas, multimedia y notas del hito',
@@ -156,6 +179,7 @@ void main() {
           hitoId: hito.id, obraId: hito.obraId);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au51'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -184,6 +208,7 @@ void main() {
       final hito = await _crearHito(daos.milestones);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au51'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -205,6 +230,7 @@ void main() {
     test('hito inexistente → error', () async {
       final daos = await _daos('cu51c');
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au51'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -234,6 +260,7 @@ void main() {
       final hito = await _crearHito(daos.milestones);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au51'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -272,6 +299,7 @@ void main() {
       final hito = await _crearHito(daos.milestones);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au51'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -317,6 +345,7 @@ void main() {
       final hito = await _crearHito(daos.milestones);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au51'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -366,6 +395,7 @@ void main() {
       final hito = await _crearHito(daos.milestones);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au51'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -400,6 +430,7 @@ void main() {
       final hito = await _crearHito(daos.milestones);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au51'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -427,6 +458,7 @@ void main() {
         () async {
       final daos = await _daos('cu52e');
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au51'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -448,6 +480,7 @@ void main() {
       final hito = await _crearHito(daos.milestones);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au51'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
       );
@@ -502,12 +535,15 @@ void main() {
           hitoId: 'h1',
           milestoneDao: milestoneDao,
           evidenceDao: evidenceDao,
+          // Firma simple de una parte (CU-52 legacy): sin segunda firma.
+          requiereDobleFirma: false,
           // CU-55/56/59: seams falsos (sin PDF real, sin disco ni BD).
           actaGenerator: (payload) async =>
               Uint8List.fromList([37, 80, 68, 70]),
           persistActa: ({required Uint8List bytes, required String fileName}) async =>
               'caché/$fileName',
           certificationDao: FakeCertificationDao(),
+          auditLog: fakeAuditWriter,
         ),
       ));
       await tester.pumpAndSettle();

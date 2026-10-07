@@ -6,6 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../domain/acta_payload.dart';
 import '../domain/entities/signature_stroke.dart';
+import '../domain/stroke_metadata.dart';
 import '../../evidence/domain/entities/evidence.dart';
 
 /// CU-56 (RF_05): motor de renderizado del acta de conformidad.
@@ -76,12 +77,6 @@ class DefaultActaPdfGenerator {
     List<(Evidence, pw.ImageProvider)> visuales,
   ) {
     final hito = payload.hito;
-    final fecha = payload.fechaConformidad;
-    final fechaText =
-        '${fecha.day.toString().padLeft(2, '0')}/'
-        '${fecha.month.toString().padLeft(2, '0')}/${fecha.year} '
-        '${fecha.hour.toString().padLeft(2, '0')}:'
-        '${fecha.minute.toString().padLeft(2, '0')}';
 
     return [
       pw.Header(
@@ -151,34 +146,120 @@ class DefaultActaPdfGenerator {
 
       _seccion(
           '${visuales.isEmpty ? "III" : "IV"}. CONFORMIDAD TÉCNICA (RF_05)'),
-      pw.Bullet(text: 'Firmante: ${payload.firmante}'),
-      pw.Bullet(text: 'Fecha y hora de la conformidad: $fechaText'),
-      pw.SizedBox(height: 6),
-      pw.Container(
-        width: _firmaBoxW,
-        height: _firmaBoxH,
-        decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
-        child: pw.CustomPaint(
-          size: const PdfPoint(_firmaBoxW, _firmaBoxH),
-          painter: (canvas, size) => _dibujarFirma(canvas, size, payload),
-        ),
-      ),
+      // CU-57 (doble firma): conformidad colegiada — ambas partes firman el
+      // mismo documento antes del sellado criptográfico (CU-59).
+      payload.conDobleFirma
+          ? pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                _firmaBox(
+                  titulo: payload.firmante,
+                  trazos: payload.trazosFirma,
+                  metadatos: payload.metadatos,
+                  fecha: payload.fechaConformidad,
+                ),
+                pw.SizedBox(width: 24),
+                _firmaBox(
+                  titulo: payload.segundoFirmante!,
+                  trazos: payload.trazosSegundaFirma,
+                  metadatos: payload.metadatosSegundaFirma!,
+                  fecha: payload.fechaSegundaConformidad!,
+                ),
+              ],
+            )
+          : _firmaBox(
+              titulo: payload.firmante,
+              trazos: payload.trazosFirma,
+              metadatos: payload.metadatos,
+              fecha: payload.fechaConformidad,
+              altoExtra: 86,
+            ),
       pw.Text(
-        'Firma manuscrita en pantalla del ${payload.firmante} '
-        '(${payload.trazosFirma.length} trazo(s) capturado(s)). El proceso de '
-        'doble firma se completa con la conformidad de la otra parte.',
+        payload.conDobleFirma
+            ? 'Firma manuscrita en pantalla de ambos firmantes '
+                '(${payload.firmante} y ${payload.segundoFirmante}). '
+                'Conformidad colegiada otorgada: el acta queda sellada '
+                '(CU-59) y los registros congelados (CU-57).'
+            : 'Firma manuscrita en pantalla del ${payload.firmante} '
+                '(${payload.trazosFirma.length} trazo(s) capturado(s)). El '
+                'proceso de doble firma se completa con la conformidad de '
+                'la otra parte.',
         style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
       ),
       pw.SizedBox(height: 12),
 
       _seccion(
-          '${visuales.isEmpty ? "IV" : "V"}. DATOS BIOMÉTRICOS DEL TRAZO (CU-55, acoplados al acta)'),
-      pw.Text(
-        const JsonEncoder.withIndent('  ')
-            .convert(payload.metadatos.toJson(trazos: payload.trazosFirma)),
-        style: const pw.TextStyle(fontSize: 6.5, color: PdfColors.grey800),
-      ),
+          '${visuales.isEmpty ? "IV" : "V"}. DATOS BIOMÉTRICOS DEL TRAZO '
+          '(CU-55, acoplados al acta)'),
+      for (final (firmanteDe, metadatos, trazos) in [
+        (
+          payload.firmante,
+          payload.metadatos,
+          payload.trazosFirma,
+        ),
+        if (payload.conDobleFirma)
+          (
+            payload.segundoFirmante!,
+            payload.metadatosSegundaFirma!,
+            payload.trazosSegundaFirma,
+          ),
+      ])
+        pw.Container(
+          margin: const pw.EdgeInsets.only(bottom: 10),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Firma de: $firmanteDe',
+                style: const pw.TextStyle(
+                    fontSize: 8, color: PdfColors.brown900),
+              ),
+              pw.Text(
+                const JsonEncoder.withIndent('  ').convert(
+                    metadatos.toJson(trazos: trazos)),
+                style: const pw.TextStyle(
+                    fontSize: 6.5, color: PdfColors.grey800),
+              ),
+            ],
+          ),
+        ),
     ];
+  }
+
+  /// Recuadro de una firma manuscrita con su rótulo y fecha (CU-57).
+  pw.Widget _firmaBox({
+    required String titulo,
+    required List<SignatureStroke> trazos,
+    required StrokeMetadata metadatos,
+    required DateTime fecha,
+    double altoExtra = 0,
+  }) {
+    final w = _firmaBoxW;
+    final h = _firmaBoxH + altoExtra;
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Container(
+          width: w,
+          height: h,
+          decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey400)),
+          child: pw.CustomPaint(
+            size: PdfPoint(w, h),
+            painter: (canvas, size) => _dibujarTrazos(
+              canvas,
+              size,
+              trazos: trazos,
+              metadatos: metadatos,
+            ),
+          ),
+        ),
+        pw.Text(
+          '$titulo · ${_fechaText(fecha)}',
+          style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+        ),
+      ],
+    );
   }
 
   pw.Widget _seccion(String titulo) => pw.Container(
@@ -240,16 +321,16 @@ class DefaultActaPdfGenerator {
       '${fecha.hour.toString().padLeft(2, '0')}:'
       '${fecha.minute.toString().padLeft(2, '0')}';
 
-  /// Dibuja los trazos de la firma vectorialmente dentro del recuadro:
-  /// normaliza el área capturada (x, y) al espacio disponible conservando
-  /// el aspecto; el eje Y del PDF crece hacia arriba (se invierte).
-  void _dibujarFirma(
+  /// Dibuja un conjunto de trazos de firma vectorialmente dentro del
+  /// recuadro: normaliza el área capturada (x, y) al espacio disponible
+  /// conservando el aspecto; el eje Y del PDF crece hacia arriba.
+  void _dibujarTrazos(
     PdfGraphics canvas,
-    PdfPoint size,
-    ActaPayload payload,
-  ) {
-    final trazos = payload.trazosFirma;
-    final m = payload.metadatos;
+    PdfPoint size, {
+    required List<SignatureStroke> trazos,
+    required StrokeMetadata metadatos,
+  }) {
+    final m = metadatos;
     if (trazos.isEmpty) return;
     final anchoArea = (m.maxX - m.minX).abs();
     final altoArea = (m.maxY - m.minY).abs();

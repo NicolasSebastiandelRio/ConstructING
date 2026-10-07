@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../evidence/data/datasources/evidence_local_data_source.dart';
-import '../../evidence/domain/checksum/evidence_checksum.dart';
+import '../../evidence/domain/crypto/evidence_integrity_verifier.dart';
 import '../../evidence/domain/entities/evidence.dart';
 import '../../milestones/data/datasources/milestone_local_data_source.dart';
 import '../data/datasources/sync_remote_data_source.dart';
@@ -30,7 +30,10 @@ class SyncEngine {
     required this.evidenceReader,
     this.maxIntegrityRetries = 3,
     this.onProgress,
-  });
+    integrityVerifier,
+    this.secureEraser,
+  }) : integrityVerifier = integrityVerifier ??
+            EvidenceIntegrityVerifier(fileReader: evidenceReader);
 
   final MilestoneLocalDataSource milestones;
   final EvidenceLocalDataSource evidences;
@@ -44,6 +47,17 @@ class SyncEngine {
 
   /// Lector de bytes del archivo local (gateway de captura en producción).
   final Future<List<int>> Function(String path) evidenceReader;
+
+  /// CU-58 (RF_08/RNF_S_03): verificación de integridad ANTES de
+  /// sincronizar — el checksum del registro se contrasta contra el hash
+  /// SHA-256 recalculado sobre el binario en disco (ref. CU-45).
+  final EvidenceIntegrityVerifier integrityVerifier;
+
+  /// CU-59 (RNF_C_05, PT-07): borrado seguro del binario local tras la
+  /// sincronización confirmada — re-escritura con patrón + eliminación.
+  /// Best-effort (el volcado ya está confirmado). Null = plataforma sin
+  /// borrado físico (la des-referencia ya liberó el binario).
+  final Future<void> Function(String archivo)? secureEraser;
 
   int _pendingCount = 0;
 
@@ -116,9 +130,20 @@ class SyncEngine {
     return result;
   }
 
-  /// Subida de una evidencia con retransmisión ante corrupción (CU-45 Alt.).
-  /// Retorna la cantidad de retransmisiones ejecutadas.
+  /// Subida de una evidencia con verificación pre-vuelo (CU-58) y
+  /// retransmisión ante corrupción (CU-45 Alt.). Retorna la cantidad de
+  /// retransmisiones ejecutadas.
   Future<int> _uploadWithIntegrity(Evidence evidence) async {
+    // --- CU-58: verificación pre-sincronización. El hash guardado en el
+    // registro se contrasta contra el binario EN DISCO: si un solo
+    // byte cambió (manipulación externa o corrupción), la divergencia
+    // se detecta antes de emitir HTTPS.
+    final preflight = await integrityVerifier.verify(evidence);
+    debugPrint(
+      'CU-58 pre-vuelo evidencia ${evidence.id}: '
+      '${preflight.ok ? "integridad verificada" : "DIVERGENCIA detectada"}',
+    );
+
     var attempt = 0;
     var checksumActual = evidence.checksum;
     var reparada = false;
@@ -134,6 +159,19 @@ class SyncEngine {
         );
         // CU-44 paso 4: marca sincronizado + libera caché temporal.
         await evidences.markSynced(evidence.id);
+        // CU-59: borrado seguro del binario local (des-referencia +
+        // re-escritura con patrón + eliminación). Best-effort: el volcado
+        // ya está confirmado; un fallo del borrado no deshace el registro.
+        final eraser = secureEraser;
+        if (eraser != null) {
+          try {
+            await eraser(evidence.archivo);
+          } catch (e) {
+            debugPrint(
+              'CU-59: borrado seguro falló para ${evidence.id}: $e',
+            );
+          }
+        }
         return attempt - 1;
       } on SyncIntegrityException {
         if (attempt >= maxIntegrityRetries) {
@@ -144,9 +182,7 @@ class SyncEngine {
           // re-ancla el checksum al archivo real para que el registro
           // muerto pueda volcar a la nube (el servidor valida CU-45 igual).
           final bytes = await _bytesOf(evidence);
-          final real = EvidenceChecksum.sha256OfBytes(
-            Uint8List.fromList(bytes),
-          );
+          final real = EvidenceIntegrityVerifier.sha256OfBytes(bytes);
           if (real != checksumActual) {
             await evidences.updateChecksum(evidence.id, real);
             checksumActual = real;

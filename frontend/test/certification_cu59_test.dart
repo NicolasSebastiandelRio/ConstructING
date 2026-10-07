@@ -131,6 +131,7 @@ void main() {
       final daoCert =
           CertificationLocalDataSource(localDatabase: daos.db);
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au59'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
         certificationDao: daoCert,

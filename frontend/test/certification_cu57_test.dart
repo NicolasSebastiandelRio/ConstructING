@@ -38,6 +38,7 @@ void main() {
       await seedEvidence(daos.evidences, hitoId: hito.id, obraId: hito.obraId);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au57'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
         actaGenerator: (payload) async => Uint8List.fromList([37, 80, 68, 70]),
@@ -87,6 +88,7 @@ void main() {
       await seedEvidence(daos.evidences, hitoId: hito.id, obraId: hito.obraId);
 
       final bloc = CertificationBloc(
+      auditLog: await openTestAuditLogWriter('au57'),
         milestoneDao: daos.milestones,
         evidenceDao: daos.evidences,
         actaGenerator: (payload) async => Uint8List.fromList([37, 80, 68, 70]),

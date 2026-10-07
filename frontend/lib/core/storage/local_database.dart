@@ -30,7 +30,7 @@ class CacheStorageException implements Exception {
 /// imborrable de las transacciones críticas, CU-60, RNF_S_03).
 class LocalDatabase {
   static const String fileName = 'constructing.db';
-  static const int schemaVersion = 5;
+  static const int schemaVersion = 6;
 
   static const String createMilestones = '''
 CREATE TABLE milestones(
@@ -81,7 +81,9 @@ CREATE TABLE evidences(
 
   /// Tabla de certificaciones (CU-59, RF_08/RNF_C_05, PT-07): el sello
   /// SHA-256 inmutable del acta PDF consolidada — el documento legal queda
-  /// sellado lógicamente contra modificaciones post-firma.
+  /// sellado lógicamente contra modificaciones post-firma. Con la doble
+  /// firma (CU-57) `firmante2` registra el segundo actor de la conformidad
+  /// colegiada (esquema v6).
   static const String createCertifications = '''
 CREATE TABLE certifications(
   acta_id TEXT PRIMARY KEY,
@@ -89,6 +91,7 @@ CREATE TABLE certifications(
   obra_id TEXT NOT NULL,
   hash_sha256 TEXT NOT NULL,
   firmante TEXT,
+  firmante2 TEXT,
   created_at TEXT NOT NULL
 )''';
 
@@ -173,6 +176,13 @@ CREATE TABLE audit_log(
                   await db.execute(createAuditLog);
                   await db.execute(
                       'CREATE INDEX idx_audit_log_obra ON audit_log(obra_id)');
+                }
+                // Migración v5 → v6: segunda firma de la conformidad
+                // colegiada (CU-57, PT-07). Las tablas creadas desde cero
+                // con el esquema v6 ya incluyen la columna; no se duplica.
+                if (oldVersion == 5) {
+                  await db.execute(
+                      'ALTER TABLE certifications ADD COLUMN firmante2 TEXT');
                 }
               },
             ),

@@ -36,6 +36,20 @@ class ActaPayload extends Equatable {
 
   final DateTime fechaConformidad;
 
+  /// --- Conformidad colegiada (CU-57, doble firma) ---
+  ///
+  /// Cuando el acta se emite con doble firma, la segunda parte firma
+  /// después de la primera: su trazo, metadatos biométricos, rol y fecha
+  /// quedan consolidados en el mismo documento antes del sellado (CU-59).
+  /// Null / vacío = acta de firma simple (flujo legacy de una parte).
+  final String? segundoFirmante;
+  final List<SignatureStroke> trazosSegundaFirma;
+  final StrokeMetadata? metadatosSegundaFirma;
+  final DateTime? fechaSegundaConformidad;
+
+  /// La conformidad es colegiada cuando las dos partes firmaron.
+  bool get conDobleFirma => segundoFirmante != null;
+
   const ActaPayload({
     required this.actaId,
     required this.hito,
@@ -46,6 +60,10 @@ class ActaPayload extends Equatable {
     required this.metadatos,
     required this.firmante,
     required this.fechaConformidad,
+    this.segundoFirmante,
+    this.trazosSegundaFirma = const [],
+    this.metadatosSegundaFirma,
+    this.fechaSegundaConformidad,
   });
 
   @override
@@ -59,5 +77,9 @@ class ActaPayload extends Equatable {
         metadatos,
         firmante,
         fechaConformidad,
+        segundoFirmante,
+        trazosSegundaFirma,
+        metadatosSegundaFirma,
+        fechaSegundaConformidad,
       ];
 }

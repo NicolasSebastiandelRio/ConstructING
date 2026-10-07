@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:constructing_mobile/core/storage/local_database.dart';
+import 'package:constructing_mobile/features/audit/data/audit_log_writer.dart';
+import 'package:constructing_mobile/features/audit/data/datasources/audit_log_local_data_source.dart';
 import 'package:constructing_mobile/features/evidence/data/datasources/evidence_local_data_source.dart';
 import 'package:constructing_mobile/features/evidence/domain/entities/evidence.dart';
 import 'package:constructing_mobile/features/milestones/data/datasources/milestone_local_data_source.dart';
@@ -78,6 +80,30 @@ Future<({
     db: localDb,
     milestones: MilestoneLocalDataSource(localDatabase: localDb),
     evidences: EvidenceLocalDataSource(localDatabase: localDb),
+  );
+}
+
+/// CU-60: escritor de Audit Log sobre BD temporal aislada (ffi).
+///
+/// `auditLog` es obligatorio en los blocs (la huella no es omitible); los
+/// tests instancian este escritor de baja fricción sobre la BD local.
+Future<AuditLogWriter> openTestAuditLogWriter(String prefix) async {
+  sqfliteFfiInit();
+  final localDb = LocalDatabase();
+  final path =
+      '${Directory.systemTemp.path}/au_${prefix}_${_dbCounter++}_${DateTime.now().microsecondsSinceEpoch}.db';
+  await localDb.openLocalDatabase(
+    factoryOverride: databaseFactoryFfiNoIsolate,
+    nameOverride: path,
+  );
+  addTearDown(() async {
+    await localDb.close();
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+  });
+  return AuditLogWriter(
+    dataSource: AuditLogLocalDataSource(localDatabase: localDb),
+    userIdReader: () async => 'test-user',
   );
 }
 

@@ -118,6 +118,7 @@ void main() {
       final dao = await openEvidenceDao('cu58');
       final spy = SpyHashService();
       final bloc = CaptureFlowBloc(
+      auditLog: await openTestAuditLogWriter('auch2'),
         captureGateway: FakeCaptureGateway(),
         locationGateway: const FakeLocationGateway(),
         evidences: dao,
