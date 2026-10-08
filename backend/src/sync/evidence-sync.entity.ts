@@ -41,7 +41,11 @@ export class EvidenceSyncEntity {
   @Column('double precision')
   precisionM!: number;
 
-  @Column({ type: 'datetime' })
+  /**
+   * Sin `type` explícito: TypeORM infiere `timestamp` en PostgreSQL y
+   * `datetime` en SQLite (literal `datetime` NO es válido en Postgres).
+   */
+  @Column()
   fechaCaptura!: Date;
 
   @Column('double precision', { nullable: true })

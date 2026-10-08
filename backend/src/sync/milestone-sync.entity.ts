@@ -38,9 +38,15 @@ export class MilestoneSyncEntity {
   @Column('boolean', { default: false })
   esCritico!: boolean;
 
-  /** Reloj de la última modificación local (CU-47). */
-  @Column({ type: 'datetime', nullable: true })
-  updatedAtLocal!: Date | null;
+  /**
+   * Reloj de la última modificación local (CU-47). Opcional SIN unión
+   * `| null`: con unión TypeORM refleja el tipo como `Object` y Postgres
+   * lo rechaza; así infiere `timestamp`/`datetime` según el motor (mismo
+   * patrón que `WorkInvitationEntity.usedAt`). En BD/JSON el pendiente es
+   * NULL.
+   */
+  @Column({ nullable: true })
+  updatedAtLocal?: Date;
 
   @CreateDateColumn()
   createdAt!: Date;
