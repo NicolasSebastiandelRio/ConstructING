@@ -1,8 +1,7 @@
-import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
-import 'package:flutter/painting.dart';
+import 'render_isolate.dart'
+    if (dart.library.js_interop) 'render_web.dart';
 
 /// CU-36 (Estampar Marca de agua Inalterable, RF_03/RNF_S_04).
 ///
@@ -10,7 +9,8 @@ import 'package:flutter/painting.dart';
 /// archivo visual: coordenadas, fecha y hora de la captura (pasos 2-4:
 /// sobrescribe el buffer en memoria con el archivo unificado y lo retorna).
 ///
-/// RNF_E_01: el renderizado debe demorar menos de 300 ms.
+/// RNF_E_01: el renderizado debe demorar menos de 300 ms y NUNCA bloquear
+/// el UI isolate (impl. IO corre en background isolate — sin ANR Android).
 class DataStamp {
   /// Límite de rendimiento de la poscondición de la spec.
   static const Duration renderBudget = Duration(milliseconds: 300);
@@ -43,78 +43,29 @@ class DataStamp {
   /// Une las líneas en el texto de marca que se persiste como atributo.
   static String composeText(List<String> lines) => lines.join(' | ');
 
-  /// Renderiza [lines] sobre [sourceBytes] y retorna el PNG unificado
+  /// Renderiza [lines] sobre [sourceBytes] y retorna el archivo unificado
   /// (pasos 2-4: sobrescribe el buffer en memoria con el archivo unificado).
   ///
-  /// Para video (CU-33 paso 4, primer frame) el códec de video no es
-  /// editable en memoria con dart:ui; la marca se persiste como atributo
-  /// ([composeText]) y se presenta como overlay en la reproducción.
+  /// Impl. por plataforma: IO (móvil/desktop) en `Isolate.run` con el
+  /// paquete `image` (JPEG out, RNF_E_01, sin ANR); web con dart:ui (PNG).
   static Future<Uint8List> renderOverImage({
     required Uint8List sourceBytes,
     required List<String> lines,
-  }) async {
+  }) {
     final stopwatch = Stopwatch()..start();
-
-    final source = await ui.instantiateImageCodec(sourceBytes);
-    final frame = await source.getNextFrame();
-    final image = frame.image;
-
-    final recorder = ui.PictureRecorder();
-    final canvas = ui.Canvas(recorder);
-    canvas.drawImage(image, ui.Offset.zero, ui.Paint());
-
-    // Banda de alto contraste en la base (paso 2).
-    final fontSize =
-        math.min(26.0, math.max(11.0, image.width * 0.028)).toDouble();
-    final textHeight = lines.length * fontSize * 1.35;
-    final bandHeight = textHeight + 24.0;
-    final bandTop = math.max(0.0, image.height - bandHeight);
-    canvas.drawRRect(
-      ui.RRect.fromRectAndRadius(
-        ui.Rect.fromLTWH(0, bandTop, image.width.toDouble(), bandHeight),
-        const ui.Radius.circular(0),
-      ),
-      ui.Paint()..color = const ui.Color(0xB3000000),
-    );
-
-    final textPainter = TextPainter(textDirection: ui.TextDirection.ltr);
-    textPainter.text = TextSpan(
-      text: lines.join('\n'),
-      style: TextStyle(
-        color: const ui.Color(0xFFFFFFFF),
-        fontSize: fontSize,
-        height: 1.25,
-        shadows: const [
-          ui.Shadow(color: ui.Color(0xFF000000), blurRadius: 2),
-        ],
-      ),
-    );
-    textPainter.layout(
-      maxWidth: math.max(0.0, (image.width - 32.0).toDouble()),
-    );
-    textPainter.paint(
-      canvas,
-      ui.Offset(16, image.height - textHeight - 12),
-    );
-
-    final picture = recorder.endRecording();
-    final unified = await picture.toImage(image.width, image.height);
-    final data = await unified.toByteData(format: ui.ImageByteFormat.png);
-    image.dispose();
-    unified.dispose();
-
-    // RNF_E_01 (medición del presupuesto de renderizado).
-    final elapsed = stopwatch.elapsed;
-    debugAssertWithinBudget(elapsed);
-
-    return data!.buffer.asUint8List();
+    return renderStamp(sourceBytes, lines).then((result) {
+      debugAssertWithinBudget(stopwatch.elapsed);
+      return result;
+    });
   }
 
   static void debugAssertWithinBudget(Duration elapsed) {
     assert(() {
       if (elapsed > renderBudget) {
         // ignore: avoid_print
-        print('DataStamp RNF_E_01: render tardó ${elapsed.inMilliseconds} ms (> 300 ms)');
+        print(
+            'DataStamp RNF_E_01: render tardó ${elapsed.inMilliseconds} ms '
+            '(> 300 ms)');
       }
       return true;
     }());
