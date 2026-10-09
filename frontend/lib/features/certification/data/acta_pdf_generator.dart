@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf/pdf.dart';
@@ -24,8 +23,28 @@ class DefaultActaPdfGenerator {
   final Future<List<int>?> Function(String archivo)? readImageBytes;
 
   /// Caja del recuadro de firma, en puntos PDF.
+  ///
+  /// Ancho útil de la caja de contenido: A4 (595.28 pt) menos los márgenes
+  /// horizontales de [generate] (40 + 40) = 515.28 pt.
+  static const double _contentWidth = 515.28;
+
+  /// Recuadro de firma individual (firma simple): entra holgado en el ancho
+  /// útil.
   static const double _firmaBoxW = 340;
+
+  /// Recuadro de firma en la conformidad COLEGIADA (CU-57): las dos firmas
+  /// van lado a lado, así que cada caja mide
+  /// `(515.28 − 24 de separación) / 2 = 245.6`. Con el ancho individual
+  /// (340 pt) las dos cajas sumaban 704 pt sobre 515 pt útiles: el `Row`
+  /// desbordaba y `MultiPage` no lograba cerrar el documento
+  /// (`PdfTooBigPageException`).
+  static const double _firmaBoxWDoble = 245;
+  static const double _firmaGap = 24;
   static const double _firmaBoxH = 150;
+
+  /// Puntos de la matriz de trazos que se transcriben al acta por firma
+  /// (muestra de inicio y de cierre). Ver [_biometriaBox].
+  static const int _puntosMuestra = 6;
 
   Future<Uint8List> generate(ActaPayload payload) async {
     final doc = pw.Document();
@@ -84,7 +103,7 @@ class DefaultActaPdfGenerator {
         text: 'ACTA DE CONFORMIDAD TÉCNICA',
       ),
       pw.Text(
-        'ConstructING — Ecosistema de Gestión y Auditoría Técnica de Obras',
+        'ConstructING - Ecosistema de Gestión y Auditoría Técnica de Obras',
         style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
       ),
       pw.SizedBox(height: 12),
@@ -96,7 +115,7 @@ class DefaultActaPdfGenerator {
       if (payload.propietarioNombre != null)
         pw.Bullet(text: 'Propietario: ${payload.propietarioNombre}'),
       pw.Bullet(
-          text: 'Hito: ${hito.nombre} (ID ${hito.id}) — '
+          text: 'Hito: ${hito.nombre} (ID ${hito.id}) - '
               'duración estimada ${hito.duracionDias} días · '
               'estado al certificar: ${hito.estado.label}'
               '${hito.esCritico ? " · hito de RUTA CRÍTICA" : ""}'),
@@ -153,13 +172,15 @@ class DefaultActaPdfGenerator {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 _firmaBox(
+                  width: _firmaBoxWDoble,
                   titulo: payload.firmante,
                   trazos: payload.trazosFirma,
                   metadatos: payload.metadatos,
                   fecha: payload.fechaConformidad,
                 ),
-                pw.SizedBox(width: 24),
+                pw.SizedBox(width: _firmaGap),
                 _firmaBox(
+                  width: _firmaBoxWDoble,
                   titulo: payload.segundoFirmante!,
                   trazos: payload.trazosSegundaFirma,
                   metadatos: payload.metadatosSegundaFirma!,
@@ -204,37 +225,111 @@ class DefaultActaPdfGenerator {
             payload.trazosSegundaFirma,
           ),
       ])
-        pw.Container(
-          margin: const pw.EdgeInsets.only(bottom: 10),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                'Firma de: $firmanteDe',
-                style: const pw.TextStyle(
-                    fontSize: 8, color: PdfColors.brown900),
-              ),
-              pw.Text(
-                const JsonEncoder.withIndent('  ').convert(
-                    metadatos.toJson(trazos: trazos)),
-                style: const pw.TextStyle(
-                    fontSize: 6.5, color: PdfColors.grey800),
-              ),
-            ],
-          ),
-        ),
+        _biometriaBox(firmanteDe, metadatos, trazos),
     ];
   }
 
+  /// CU-55: bloque biométrico ACOTADO de una firma.
+  ///
+  /// El acta es un documento legal de extensión acotada: la matriz completa
+  /// de puntos (cientos o miles por firma) NO se transcribe. Volcarla como
+  /// JSON indentado producía decenas de páginas por firma —y más de 20 en la
+  /// conformidad colegiada, que lleva dos— hasta romper el renderizado con
+  /// `PdfTooBigPageException`.
+  ///
+  /// Se imprimen los AGREGADOS biométricos (conteos, longitud, duración,
+  /// velocidad, presión y área de captura) y una MUESTRA del inicio y del
+  /// cierre del trazo, dejando constancia en el propio documento de que la
+  /// matriz completa queda acoplada al registro digital sellado (CU-59): el
+  /// acta no oculta nada, solo no la despliega.
+  pw.Widget _biometriaBox(
+    String firmanteDe,
+    StrokeMetadata metadatos,
+    List<SignatureStroke> trazos,
+  ) {
+    final puntos = [for (final trazo in trazos) ...trazo.points];
+    final inicio = puntos.take(_puntosMuestra).toList();
+    final cierre = puntos.length <= _puntosMuestra * 2
+        ? const <SignaturePoint>[]
+        : puntos.sublist(puntos.length - _puntosMuestra);
+    final omitidos = puntos.length - inicio.length - cierre.length;
+    return pw.Container(
+      margin: const pw.EdgeInsets.only(bottom: 10),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            'Firma de: $firmanteDe',
+            style: const pw.TextStyle(
+                fontSize: 8, color: PdfColors.brown900),
+          ),
+          _datoBiometrico('Trazos', '${metadatos.trazosCount}'),
+          _datoBiometrico('Puntos capturados', '${metadatos.puntosCount}'),
+          _datoBiometrico('Longitud total',
+              '${metadatos.longitudTotalPx.toStringAsFixed(2)} px'),
+          _datoBiometrico('Duración',
+              '${metadatos.duracionMs.toStringAsFixed(0)} ms'),
+          _datoBiometrico('Velocidad media',
+              '${metadatos.velocidadMediaPxS.toStringAsFixed(2)} px/s'),
+          _datoBiometrico('Presión media / máxima',
+              '${metadatos.presionMedia.toStringAsFixed(3)} / '
+              '${metadatos.presionMaxima.toStringAsFixed(3)}'),
+          _datoBiometrico(
+            'Área de captura (x, y)',
+            '(${metadatos.minX.toStringAsFixed(1)}, '
+            '${metadatos.minY.toStringAsFixed(1)}) -> '
+            '(${metadatos.maxX.toStringAsFixed(1)}, '
+            '${metadatos.maxY.toStringAsFixed(1)})',
+          ),
+          if (puntos.isNotEmpty) ...[
+            pw.SizedBox(height: 2),
+            pw.Text(
+              'Muestra de la matriz del trazo (x, y, t ms, presión):',
+              style: const pw.TextStyle(
+                  fontSize: 7, color: PdfColors.grey700),
+            ),
+            for (final p in inicio) _puntoTexto(p),
+            if (cierre.isNotEmpty) ...[
+              if (omitidos > 0)
+                pw.Text(
+                  '  ... $omitidos punto(s) intermedio(s) no desplegados aquí: '
+                  'la matriz completa queda acoplada al registro digital '
+                  'sellado (CU-59).',
+                  style: const pw.TextStyle(
+                      fontSize: 7, color: PdfColors.grey700),
+                ),
+              for (final p in cierre) _puntoTexto(p),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _datoBiometrico(String etiqueta, String valor) => pw.Text(
+        '$etiqueta: $valor',
+        style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
+      );
+
+  pw.Widget _puntoTexto(SignaturePoint p) => pw.Text(
+        '  (${p.x.toStringAsFixed(1)}, ${p.y.toStringAsFixed(1)}, '
+        '${p.t} ms, ${p.pressure.toStringAsFixed(3)})',
+        style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey800),
+      );
+
   /// Recuadro de una firma manuscrita con su rótulo y fecha (CU-57).
+  ///
+  /// [width] es el ancho del recuadro: 340 pt en firma simple y 245 pt en la
+  /// conformidad colegiada, donde las dos firmas comparten el ancho útil.
   pw.Widget _firmaBox({
     required String titulo,
     required List<SignatureStroke> trazos,
     required StrokeMetadata metadatos,
     required DateTime fecha,
+    double width = _firmaBoxW,
     double altoExtra = 0,
   }) {
-    final w = _firmaBoxW;
+    final w = width;
     final h = _firmaBoxH + altoExtra;
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
