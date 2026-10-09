@@ -241,6 +241,7 @@ class _PreviewViewState extends State<_PreviewView> {
   Widget build(BuildContext context) {
     final draft = widget.draft;
     return SingleChildScrollView(
+      physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

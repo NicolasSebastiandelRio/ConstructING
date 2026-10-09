@@ -117,6 +117,7 @@ class _DependenciesDialogState extends State<DependenciesDialog> {
               fontWeight: FontWeight.bold),
         ),
         content: SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,

@@ -253,6 +253,7 @@ class _EvidenceViewerScreenState extends State<EvidenceViewerScreen> {
   Widget _mediaView() {
     final evidence = widget.evidence;
     return SingleChildScrollView(
+      physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -83,6 +83,7 @@ class _NewMilestoneModalState extends State<NewMilestoneModal> {
           top: 24,
         ),
         child: SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
           child: Form(
             key: _formKey,
             child: Column(

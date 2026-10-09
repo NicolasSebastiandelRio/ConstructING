@@ -59,6 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: BlocConsumer<AuthBloc, AuthState>(
               listener: (context, state) {

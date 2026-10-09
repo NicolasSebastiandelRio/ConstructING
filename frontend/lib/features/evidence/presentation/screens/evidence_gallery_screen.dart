@@ -99,6 +99,7 @@ class _EvidenceGalleryScreenState extends State<EvidenceGalleryScreen> {
                           ),
                         )
                       : ListView.builder(
+                          physics: const ClampingScrollPhysics(),
                           padding: const EdgeInsets.all(16),
                           itemCount: _evidences.length,
                           itemBuilder: (context, index) => _EvidenceCard(

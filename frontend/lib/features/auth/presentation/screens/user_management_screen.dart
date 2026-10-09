@@ -102,6 +102,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         : _usuarios.isEmpty
                             ? const Center(child: Text('No hay usuarios registrados.', style: TextStyle(color: Colors.white54)))
                             : ListView.builder(
+                                physics: const ClampingScrollPhysics(),
                                 itemCount: _usuarios.length,
                                 itemBuilder: (context, index) {
                                   final user = _usuarios[index];
@@ -245,6 +246,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           style: TextStyle(fontFamily: 'Cinzel', color: AppTheme.accentGold, fontWeight: FontWeight.bold),
         ),
         content: SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
           child: Form(
             key: formKey,
             child: Column(

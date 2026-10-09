@@ -232,6 +232,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
             ),
             body: SafeArea(
               child: SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -459,6 +460,7 @@ class _StatusDialogState extends State<_StatusDialog> {
               fontWeight: FontWeight.bold),
         ),
         content: SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -680,6 +682,7 @@ class _InviteDialogState extends State<_InviteDialog> {
             fontWeight: FontWeight.bold),
       ),
       content: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
         child: _generatedCode != null
             ? Column(
                 mainAxisSize: MainAxisSize.min,

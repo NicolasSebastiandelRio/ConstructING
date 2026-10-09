@@ -191,6 +191,7 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
                         );
                       }
                       return ListView.builder(
+                        physics: const ClampingScrollPhysics(),
                         itemCount: state.works.length,
                         itemBuilder: (context, index) {
                           final work = state.works[index];

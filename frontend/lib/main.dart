@@ -5,6 +5,7 @@ import 'core/network/dio_client.dart';
 import 'core/network/connectivity_cubit.dart';
 import 'core/network/connectivity_monitor.dart';
 import 'core/storage/local_database.dart';
+import 'core/theme/app_scroll_behavior.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/data/datasources/auth_remote_data_source.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
@@ -114,6 +115,10 @@ class ConstructINGApp extends StatelessWidget {
       title: 'ConstructING',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
+      // Scroll físico global: sin elasticidad, sin estiramiento del
+      // contenido ni indicador de over-scroll en ninguna vista (ver
+      // AppScrollBehavior).
+      scrollBehavior: const AppScrollBehavior(),
       home: const AuthRootScreen(),
     );
   }
