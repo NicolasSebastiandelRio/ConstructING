@@ -8,8 +8,7 @@ import 'package:constructing_mobile/core/storage/local_database.dart';
 import 'package:constructing_mobile/features/audit/data/audit_log_writer.dart';
 import 'package:constructing_mobile/features/audit/data/datasources/audit_log_local_data_source.dart';
 import 'package:constructing_mobile/features/certification/data/datasources/certification_local_data_source.dart';
-import 'package:constructing_mobile/features/certification/domain/acta_payload.dart';
-import 'package:constructing_mobile/features/certification/domain/entities/signature_stroke.dart';
+import 'package:constructing_mobile/features/certification/domain/acta_payload.dart';import 'package:constructing_mobile/features/certification/domain/entities/signature_stroke.dart';
 import 'package:constructing_mobile/features/certification/presentation/bloc/certification_bloc.dart';
 import 'package:constructing_mobile/features/certification/presentation/bloc/certification_event.dart';
 import 'package:constructing_mobile/features/certification/presentation/bloc/certification_state.dart';
@@ -46,6 +45,7 @@ Future<({
   MilestoneLocalDataSource milestones,
   EvidenceLocalDataSource evidences,
   CertificationLocalDataSource certifications,
+  PendingConformidadDataSource pendientes,
   AuditLogLocalDataSource auditDao,
   AuditLogWriter auditWriter,
 })> _contexto(String nombre) async {
@@ -68,6 +68,7 @@ Future<({
     milestones: MilestoneLocalDataSource(localDatabase: localDb),
     evidences: EvidenceLocalDataSource(localDatabase: localDb),
     certifications: CertificationLocalDataSource(localDatabase: localDb),
+    pendientes: PendingConformidadDataSource(localDatabase: localDb),
     auditDao: dao,
     auditWriter: AuditLogWriter(
       dataSource: dao,
@@ -94,6 +95,8 @@ void main() {
         milestoneDao: ctx.milestones,
         evidenceDao: ctx.evidences,
         certificationDao: ctx.certifications,
+        pendingConformidadDao:
+            PendingConformidadDataSource(localDatabase: ctx.db),
         auditLog: ctx.auditWriter,
         requiereDobleFirma: true,
         actaGenerator: motores.generate,
@@ -130,6 +133,11 @@ void main() {
       expect(await ctx.certifications.findByHito(hito.id), isNull);
       // El acta aún NO se compila.
       expect(motores.payloads, isEmpty);
+      // La primera firma quedó PERSISTIDA como borrador de conformidad.
+      final borrador = await ctx.pendientes.findPending(hito.id);
+      expect(borrador, isNotNull);
+      expect(borrador!.primerFirmante, 'Profesional');
+      expect(borrador.primerTrazos, hasLength(1));
     });
 
     test(
@@ -146,6 +154,8 @@ void main() {
         milestoneDao: ctx.milestones,
         evidenceDao: ctx.evidences,
         certificationDao: ctx.certifications,
+        pendingConformidadDao:
+            PendingConformidadDataSource(localDatabase: ctx.db),
         auditLog: ctx.auditWriter,
         requiereDobleFirma: true,
         actaGenerator: motores.generate,
@@ -223,6 +233,8 @@ void main() {
         milestoneDao: ctx.milestones,
         evidenceDao: ctx.evidences,
         certificationDao: ctx.certifications,
+        pendingConformidadDao:
+            PendingConformidadDataSource(localDatabase: ctx.db),
         auditLog: ctx.auditWriter,
         requiereDobleFirma: true,
         actaGenerator: motores.generate,
@@ -297,6 +309,8 @@ void main() {
         milestoneDao: ctx.milestones,
         evidenceDao: ctx.evidences,
         certificationDao: ctx.certifications,
+        pendingConformidadDao:
+            PendingConformidadDataSource(localDatabase: ctx.db),
         auditLog: ctx.auditWriter,
         requiereDobleFirma: false,
         actaGenerator: motores.generate,
@@ -322,6 +336,180 @@ void main() {
       );
       expect(motores.payloads.single.conDobleFirma, isFalse);
       expect(motores.payloads.single.segundoFirmante, isNull);
+    });
+
+    test(
+        'el mismo rol NO puede volver a firmar: re-cargar el resumen con la '
+        'primera firma pendiente emite bloqueo (sin lienzo ni sello)',
+        () async {
+      final ctx = await _contexto('df5');
+      final motores = _SpyGenerator();
+      final hito = await ctx.milestones
+          .create(obraId: 'w1', nombre: 'Cimientos', duracionDias: 3);
+      await ctx.milestones
+          .update(hito.copyWith(estado: MilestoneStatus.enEjecucion));
+
+      // Sesión A (Profesional): primera firma persistida como borrador.
+      final blocA = CertificationBloc(
+        milestoneDao: ctx.milestones,
+        evidenceDao: ctx.evidences,
+        certificationDao: ctx.certifications,
+        pendingConformidadDao:
+            PendingConformidadDataSource(localDatabase: ctx.db),
+        auditLog: ctx.auditWriter,
+        requiereDobleFirma: true,
+        actaGenerator: motores.generate,
+      );
+      addTearDown(blocA.close);
+      blocA.add(LoadCertificationSummary(hitoId: hito.id));
+      await expectLater(
+        blocA.stream,
+        emitsInOrder([
+          isA<CertificationLoading>(),
+          isA<CertificationSummaryReady>(),
+        ]),
+      );
+      blocA.add(SignatureStrokeCommitted(points: _trazo(length: 250)));
+      blocA.add(const SignatureConfirmationRequested());
+      await expectLater(
+        blocA.stream,
+        emitsInOrder([
+          isA<CertificationSummaryReady>(),
+          isA<CertificationSecondSignaturePending>(),
+        ]),
+      );
+
+      // El Profrl reabre el resumen: su firma ya está registrada → el
+      // estado BLOQUEA el lienzo (guard del bloc) y el hito sigue sin
+      // certificar.
+      final blocB = CertificationBloc(
+        milestoneDao: ctx.milestones,
+        evidenceDao: ctx.evidences,
+        certificationDao: ctx.certifications,
+        pendingConformidadDao:
+            PendingConformidadDataSource(localDatabase: ctx.db),
+        auditLog: ctx.auditWriter,
+        requiereDobleFirma: true,
+        firmante: 'Profesional',
+        actaGenerator: motores.generate,
+      );
+      addTearDown(blocB.close);
+      blocB.add(LoadCertificationSummary(hitoId: hito.id));
+      await expectLater(
+        blocB.stream,
+        emitsInOrder([
+          isA<CertificationLoading>(),
+          isA<CertificationAwaitingOtherParty>(),
+        ]),
+      );
+      final chequeoAwaiting = isA<CertificationAwaitingOtherParty>();
+      expect(
+        (blocB.state as CertificationAwaitingOtherParty).message,
+        contains('Profesional'),
+      );
+      // Confirmar de nuevo NO genera efectos: el guard del bloquea.
+      blocB.add(SignatureStrokeCommitted(points: _trazo(length: 300)));
+      blocB.add(const SignatureConfirmationRequested());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(blocB.state, chequeoAwaiting);
+      expect(motores.payloads, isEmpty);
+      final hitoVigente = await ctx.milestones.getById(hito.id);
+      expect(hitoVigente!.estado, MilestoneStatus.enEjecucion);
+    });
+
+    test(
+        'el Propietario cierra la conformidad: recupera el borrador '
+        '(restauración) y firma la segunda conformidad colegiada',
+        () async {
+      final ctx = await _contexto('df6');
+      final motores = _SpyGenerator();
+      final hito = await ctx.milestones
+          .create(obraId: 'w1', nombre: 'Estructura', duracionDias: 8);
+      await ctx.milestones
+          .update(hito.copyWith(estado: MilestoneStatus.enEjecucion));
+
+      // Sesión A (Profesional): primera firma persistida.
+      final blocA = CertificationBloc(
+        milestoneDao: ctx.milestones,
+        evidenceDao: ctx.evidences,
+        certificationDao: ctx.certifications,
+        pendingConformidadDao:
+            PendingConformidadDataSource(localDatabase: ctx.db),
+        auditLog: ctx.auditWriter,
+        requiereDobleFirma: true,
+        firmante: 'Profesional',
+        actaGenerator: motores.generate,
+      );
+      addTearDown(blocA.close);
+      blocA.add(LoadCertificationSummary(hitoId: hito.id));
+      await expectLater(
+        blocA.stream,
+        emitsInOrder([
+          isA<CertificationLoading>(),
+          isA<CertificationSummaryReady>(),
+        ]),
+      );
+      blocA.add(SignatureStrokeCommitted(points: _trazo(length: 260, t0: 100)));
+      blocA.add(const SignatureConfirmationRequested());
+      await expectLater(
+        blocA.stream,
+        emitsInOrder([
+          isA<CertificationSummaryReady>(),
+          isA<CertificationSecondSignaturePending>(),
+        ]),
+      );
+
+      // Sesión B (Propietario): entra TARDE — su carga DEBE restaurar el
+      // borrador (primera firma del profesional) directamente en etapa 2.
+      final blocB = CertificationBloc(
+        milestoneDao: ctx.milestones,
+        evidenceDao: ctx.evidences,
+        certificationDao: ctx.certifications,
+        pendingConformidadDao:
+            PendingConformidadDataSource(localDatabase: ctx.db),
+        auditLog: ctx.auditWriter,
+        requiereDobleFirma: true,
+        firmante: 'Propietario',
+        actaGenerator: motores.generate,
+      );
+      addTearDown(blocB.close);
+      blocB.add(LoadCertificationSummary(hitoId: hito.id));
+      await expectLater(
+        blocB.stream,
+        emitsInOrder([
+          isA<CertificationLoading>(),
+          isA<CertificationSecondSignaturePending>(),
+        ]),
+      );
+      final restaurada =
+          blocB.state as CertificationSecondSignaturePending;
+      expect(restaurada.primerFirmante, 'Profesional');
+      expect(restaurada.trazosPrimeraFirma, hasLength(1));
+      expect(restaurada.metadatosPrimeraFirma.longitudTotalPx, greaterThan(0));
+
+      // Firma del propietario → cierre completo con conformidad colegiada.
+      blocB.add(
+          SignatureStrokeCommitted(points: _trazo(length: 280, t0: 800)));
+      blocB.add(const SignatureConfirmationRequested());
+      await expectLater(
+        blocB.stream,
+        emitsInOrder([
+          isA<CertificationSecondSignaturePending>(),
+          isA<CertificationSignatureCaptured>(),
+        ]),
+      );
+      // Poscondiciones: hito congelado, sello con doble firma y borrador
+      // descartado (no queda pendiente para un tercer intento).
+      final cerrado = await ctx.milestones.getById(hito.id);
+      expect(cerrado!.estado, MilestoneStatus.certificado);
+      final sello = await ctx.certifications.findByHito(hito.id);
+      expect(sello!.firmante, 'Profesional');
+      expect(sello.firmante2, 'Propietario');
+      expect(await ctx.pendientes.findPending(hito.id), isNull);
+      final payload = motores.payloads.single;
+      expect(payload.conDobleFirma, isTrue);
+      expect(payload.segundoFirmante, 'Propietario');
+      expect(payload.trazosSegundaFirma, hasLength(1));
     });
   });
 }

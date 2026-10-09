@@ -26,6 +26,22 @@ class SignaturePoint extends Equatable {
   double distanceTo(SignaturePoint other) =>
       math.sqrt(math.pow(x - other.x, 2) + math.pow(y - other.y, 2));
 
+  /// Serialización del punto (insumo de la conformidad pendiente, CU-57).
+  Map<String, dynamic> toJson() => {
+        'x': x,
+        'y': y,
+        't': t,
+        'p': pressure,
+      };
+
+  factory SignaturePoint.fromJson(Map<String, dynamic> json) =>
+      SignaturePoint(
+        x: (json['x'] as num?)?.toDouble() ?? 0,
+        y: (json['y'] as num?)?.toDouble() ?? 0,
+        t: (json['t'] as int?) ?? 0,
+        pressure: (json['p'] as num?)?.toDouble() ?? 1.0,
+      );
+
   @override
   List<Object?> get props => [x, y, t, pressure];
 }
@@ -48,4 +64,16 @@ class SignatureStroke extends Equatable {
 
   @override
   List<Object?> get props => [points];
+
+  /// Serialización del trazo (persistencia de conformidad pendiente, CU-57).
+  Map<String, dynamic> toJson() => {
+        'puntos': [for (final p in points) p.toJson()],
+      };
+
+  factory SignatureStroke.fromJson(Map<String, dynamic> json) =>
+      SignatureStroke([
+        for (final p in (json['puntos'] as List? ?? const [])
+            .whereType<Map<String, dynamic>>())
+          SignaturePoint.fromJson(p),
+      ]);
 }

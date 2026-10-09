@@ -857,17 +857,22 @@ class _MilestoneTile extends StatelessWidget {
         onPressed: onEdit,
       ));
     }
-    // CU-26/CU-50 paso 1: Iniciar (pendiente) o Certificar Etapa (en
-    // Ejecución, RF_05); los certificados no ofrecen acción.
-    if (isProfesional && onAdvance != null) {
+    // CU-26/CU-50 paso 1: Iniciar (pendiente) — solo Profesional;
+    // CU-57 (doble firma): Certificar Etapa / Firmar conformidad — ambos
+    // roles: quien firma primero queda en espera de la otra parte y el
+    // mismo rol no puede firmar dos veces (guard del bloc de
+    // certificación). Los certificados no ofrecen acción.
+    if (onAdvance != null &&
+        (isProfesional || milestone.estado == MilestoneStatus.enEjecucion)) {
+      final esCierre = milestone.estado != MilestoneStatus.pendiente;
       actions.add(IconButton(
-        tooltip: milestone.estado == MilestoneStatus.pendiente
-            ? 'Iniciar hito'
-            : 'Certificar etapa',
+        tooltip: esCierre
+            ? (isProfesional
+                ? 'Certificar etapa'
+                : 'Firmar conformidad (Propietario)')
+            : 'Iniciar hito',
         icon: Icon(
-          milestone.estado == MilestoneStatus.pendiente
-              ? Icons.play_arrow_outlined
-              : Icons.check_circle_outline,
+          esCierre ? Icons.check_circle_outline : Icons.play_arrow_outlined,
           color: Colors.greenAccent,
         ),
         onPressed: onAdvance,

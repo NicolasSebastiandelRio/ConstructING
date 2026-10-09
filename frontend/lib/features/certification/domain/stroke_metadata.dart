@@ -85,6 +85,28 @@ class StrokeMetadata extends Equatable {
         maxX,
         maxY,
       ];
+
+  /// Reconstruye los metadatos desde su JSON persistido (conformidad
+  /// pendiente, CU-57): usa los AGREGADOS — la matriz de trazos viaja
+  /// separada en el borrador.
+  static StrokeMetadata fromStoredJson(Map<String, dynamic> json) {
+    double r2(Object? v) => (v is num ? v : 0).toDouble();
+    double r3(Object? v) => (v is num ? v : 0).toDouble();
+    final area =
+        (json['area_px'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return StrokeMetadata(
+      trazosCount: (json['trazos_count'] as num?)?.toInt() ?? 0,
+      puntosCount: (json['puntos_count'] as num?)?.toInt() ?? 0,
+      longitudTotalPx: r2(json['longitud_total_px']),
+      duracionMs: r2(json['duracion_ms']),
+      presionMedia: r3(json['presion_media']),
+      presionMaxima: r3(json['presion_maxima']),
+      minX: r2(area['min_x']),
+      minY: r2(area['min_y']),
+      maxX: r2(area['max_x']),
+      maxY: r2(area['max_y']),
+    );
+  }
 }
 
 /// CU-55: extractor de parámetros biométricos. Consulta los eventos de

@@ -55,6 +55,10 @@ class CertificationSummaryScreen extends StatefulWidget {
   /// Tabla de certificaciones (CU-59); en producción se crea sobre la BD local.
   final CertificationLocalDataSource? certificationDao;
 
+  /// CU-57: borrador de la primera firma (doble firma). Inyectable en
+  /// tests; en producción se crea sobre la BD local real.
+  final PendingConformidadDataSource? pendingConformidadDao;
+
   /// CU-60: Servicio de Audit Log (inyectable en tests; producción crea el
   /// escritor sobre la BD local real).
   final AuditLogWriter? auditLog;
@@ -69,6 +73,7 @@ class CertificationSummaryScreen extends StatefulWidget {
     this.actaGenerator,
     this.persistActa,
     this.certificationDao,
+    this.pendingConformidadDao,
     this.auditLog,
   });
 
@@ -100,6 +105,13 @@ class _CertificationSummaryScreenState
       // CU-59 paso 4: sello SHA-256 en la tabla de certificaciones local.
       certificationDao: widget.certificationDao ??
           CertificationLocalDataSource(localDatabase: LocalDatabase()),
+      // CU-57: borrador de la primera firma (doble firma colegiada). Solo
+      // con BD local real (producción); los tests lo inyectan o pasan sin
+      // persistencia (null = solo-sesión).
+      pendingConformidadDao: widget.pendingConformidadDao ??
+          (widget.milestoneDao == null
+              ? PendingConformidadDataSource(localDatabase: LocalDatabase())
+              : null),
       // CU-60: huella imborrable del firmado del acta (solo producción).
       auditLog: widget.auditLog ??
           AuditLogWriter(

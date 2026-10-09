@@ -30,7 +30,7 @@ class CacheStorageException implements Exception {
 /// imborrable de las transacciones críticas, CU-60, RNF_S_03).
 class LocalDatabase {
   static const String fileName = 'constructing.db';
-  static const int schemaVersion = 6;
+  static const int schemaVersion = 7;
 
   static const String createMilestones = '''
 CREATE TABLE milestones(
@@ -95,6 +95,23 @@ CREATE TABLE certifications(
   created_at TEXT NOT NULL
 )''';
 
+  /// Conformidades pendientes de segunda firma (CU-57, doble firma): la
+  /// primera firma queda PERSISTIDA en la BD local (borrador de
+  /// conformidad) hasta que la otra parte complete la conformidad
+  /// colegiada (sellado CU-59) o la descarte. Es la memoria que permite al
+  /// Propietario — en otra sesión o rol — encontrar el hito "esperando su
+  /// firma" y cerrarlo (el borrador vive solo en el caché local).
+  static const String createPendingConformidades = '''
+CREATE TABLE conformidades_pendientes(
+  hito_id TEXT PRIMARY KEY,
+  obra_id TEXT NOT NULL,
+  primer_firmante TEXT NOT NULL,
+  primer_trazos TEXT NOT NULL,
+  primer_metadatos TEXT NOT NULL,
+  primer_fecha TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)''';
+
   /// Tabla de auditoría (CU-60, RF_08/RNF_S_03): huella permanente e
   /// imborrable de las transacciones críticas (qué actor hizo qué acción,
   /// a qué hora y dónde). Solo INSERT/SELECT: Update/Delete quedan
@@ -141,6 +158,7 @@ CREATE TABLE audit_log(
                 await db.execute(createEvidences);
                 await db.execute(createCertifications);
                 await db.execute(createAuditLog);
+                await db.execute(createPendingConformidades);
                 await db.execute(
                     'CREATE INDEX idx_milestones_obra ON milestones(obra_id)');
                 await db.execute(
@@ -183,6 +201,11 @@ CREATE TABLE audit_log(
                 if (oldVersion == 5) {
                   await db.execute(
                       'ALTER TABLE certifications ADD COLUMN firmante2 TEXT');
+                }
+                // Migración v6 → v7: conformidades pendientes de segunda
+                // firma (CU-57): persistencia del borrador de conformidad.
+                if (oldVersion == 6) {
+                  await db.execute(createPendingConformidades);
                 }
               },
             ),

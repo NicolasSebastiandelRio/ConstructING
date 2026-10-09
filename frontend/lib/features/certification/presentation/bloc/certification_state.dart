@@ -41,6 +41,22 @@ class CertificationSummaryReady extends CertificationState {
   List<Object?> get props => [hito, evidencias, strokes];
 }
 
+/// CU-57 (doble firma): la PRIMERA firma ya fue registrada (persistida) y
+/// este rol no puede firmar dos veces — el acta espera la conformidad de la
+/// OTRA parte. El lienzo queda bloqueado (sin doble firma del mismo rol).
+class CertificationAwaitingOtherParty extends CertificationSummaryReady {
+  final String message;
+
+  const CertificationAwaitingOtherParty({
+    required this.message,
+    required super.hito,
+    required super.evidencias,
+  }) : super(strokes: const []);
+
+  @override
+  List<Object?> get props => [...super.props, message];
+}
+
 /// CU-52 Alt. 2.1/2.2: trazo inferior a la longitud mínima permitida. El
 /// lienzo queda limpio (CU-53 ejecutado), la confirmación bloqueada y se
 /// pide reintentar. Extiende SummaryReady para conservar el resumen.
