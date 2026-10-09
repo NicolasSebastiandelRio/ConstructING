@@ -8,6 +8,15 @@ import '../../domain/stroke_metadata.dart';
 abstract class CertificationState extends Equatable {
   const CertificationState();
 
+  /// CU-52/CU-57: ¿habilita este estado el lienzo de firma manuscrita?
+  ///
+  /// Solo los estados que representan una conformidad PENDIENTE de firma lo
+  /// habilitan. Un estado bloqueado (el rol ya firmó, falta la conformidad
+  /// técnica previa o el hito ya está sellado) lo deshabilita: es el guard
+  /// único que consumen el bloc (trazo, limpieza y confirmación) y la
+  /// pantalla del CU-51 (render del lienzo).
+  bool get signaturePadEnabled => false;
+
   @override
   List<Object?> get props => [];
 }
@@ -37,6 +46,11 @@ class CertificationSummaryReady extends CertificationState {
         strokes: strokes ?? this.strokes,
       );
 
+  /// CU-52 paso 4: el lienzo está habilitado — hay una conformidad pendiente
+  /// de capturar (lienzo limpio tras un rechazo incluido, CU-53).
+  @override
+  bool get signaturePadEnabled => true;
+
   @override
   List<Object?> get props => [hito, evidencias, strokes];
 }
@@ -52,6 +66,11 @@ class CertificationAwaitingOtherParty extends CertificationSummaryReady {
     required super.hito,
     required super.evidencias,
   }) : super(strokes: const []);
+
+  /// CU-57: este rol ya firmó — el lienzo queda BLOQUEADO (no firma dos
+  /// veces, ni siquiera repinta sobre el estado de espera).
+  @override
+  bool get signaturePadEnabled => false;
 
   @override
   List<Object?> get props => [...super.props, message];
@@ -151,9 +170,55 @@ class CertificationSignatureCaptured extends CertificationSummaryReady {
     this.actaPath,
   });
 
+  /// CU-57/CU-59: el acta quedó sellada y el hito congelado — no admite
+  /// nuevas firmas (el lienzo no vuelve a habilitarse).
+  @override
+  bool get signaturePadEnabled => false;
+
   @override
   List<Object?> get props =>
       [...super.props, conformidadAt, metadatos, actaPath, hashSha256];
+}
+
+/// CU-57 (precondición colegiada): el hito todavía NO tiene la conformidad
+/// técnica del profesional responsable, así que no existe borrador de
+/// conformidad que refrendar. El Propietario no puede forzar el cierre: el
+/// lienzo queda inhabilitado y se le indica que espere la certificación del
+/// profesional.
+class CertificationFirstSignatureRequired extends CertificationSummaryReady {
+  final String message;
+
+  const CertificationFirstSignatureRequired({
+    required this.message,
+    required super.hito,
+    required super.evidencias,
+  }) : super(strokes: const []);
+
+  /// CU-57: sin la primera firma del profesional no hay nada que firmar.
+  @override
+  bool get signaturePadEnabled => false;
+
+  @override
+  List<Object?> get props => [...super.props, message];
+}
+
+/// CU-57/CU-59: el hito ya tiene su acta sellada (ambas firmas capturadas) y
+/// sus registros congelados. Reabrir el resumen no habilita una nueva firma:
+/// los datos certificados quedaron grabados en piedra.
+class CertificationAlreadySealed extends CertificationSummaryReady {
+  final String message;
+
+  const CertificationAlreadySealed({
+    required this.message,
+    required super.hito,
+    required super.evidencias,
+  }) : super(strokes: const []);
+
+  @override
+  bool get signaturePadEnabled => false;
+
+  @override
+  List<Object?> get props => [...super.props, message];
 }
 
 class CertificationError extends CertificationState {

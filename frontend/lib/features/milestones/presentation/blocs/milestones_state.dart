@@ -25,14 +25,22 @@ class MilestonesLoaded extends MilestonesState {
   /// no se calculó o el grafo quedó circular.
   final Map<String, CpmNodeSchedule> schedules;
 
+  /// CU-57: hito → rol que ya firmó la PRIMERA conformidad y cuyo borrador
+  /// espera la segunda firma. Alimenta el estado "esperando su firma" de la
+  /// Hoja de Ruta del Propietario y el guard que le impide certificar sin la
+  /// conformidad técnica previa del profesional responsable.
+  final Map<String, String> pendingFirmantes;
+
   const MilestonesLoaded({
     required this.milestones,
     this.edges = const {},
     this.schedules = const {},
+    this.pendingFirmantes = const {},
   });
 
   @override
-  List<Object?> get props => [milestones, edges, schedules];
+  List<Object?> get props =>
+      [milestones, edges, schedules, pendingFirmantes];
 }
 
 /// CU-50 poscondición: el hito pasó la validación y entra en flujo de
@@ -50,6 +58,7 @@ class MilestoneCertificationReady extends MilestonesLoaded {
     required super.milestones,
     super.edges,
     super.schedules,
+    super.pendingFirmantes,
   });
 
   @override
@@ -71,6 +80,7 @@ class MilestoneCertificationBlocked extends MilestonesLoaded {
     required super.milestones,
     super.edges,
     super.schedules,
+    super.pendingFirmantes,
   });
 
   @override

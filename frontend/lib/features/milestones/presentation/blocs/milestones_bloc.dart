@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../audit/data/audit_log_writer.dart';
+import '../../../certification/data/datasources/certification_local_data_source.dart';
 import '../../../evidence/data/datasources/evidence_local_data_source.dart';
 import '../../data/datasources/estimated_end_writer.dart';
 import '../../data/datasources/milestone_local_data_source.dart';
@@ -39,11 +40,18 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
   /// transacciones críticas. Opcional (best-effort, transparente).
   final AuditLogWriter? auditLog;
 
+  /// CU-57 (PT-07): borradores de conformidad pendientes de segunda firma.
+  /// Alimenta el estado "esperando su firma" de la Hoja de Ruta del
+  /// Propietario. Opcional: sin él la Hoja de Ruta no conoce el estado
+  /// colegiado (tests que no lo inyectan).
+  final PendingConformidadDataSource? pendingConformidadDao;
+
   MilestonesBloc({
     required this.dataSource,
     this.evidenceDao,
     this.scheduleWriter,
     this.auditLog,
+    this.pendingConformidadDao,
     MilestoneOwnerNotifier? ownerNotifier,
   })  : ownerNotifier =
             ownerNotifier ?? const ConsoleMilestoneOwnerNotifier(),
@@ -326,7 +334,23 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
       milestones: milestones,
       edges: edges,
       schedules: schedules ?? _safeSchedules(milestones, edges),
+      pendingFirmantes: await _pendingFirmantes(obraId),
     );
+  }
+
+  /// CU-57: mapa hito → rol del primer firmante de la conformidad colegiada
+  /// pendiente de segunda firma. Best-effort: un fallo de lectura del
+  /// borrador no debe tumbar la Hoja de Ruta.
+  Future<Map<String, String>> _pendingFirmantes(String obraId) async {
+    final dao = pendingConformidadDao;
+    if (dao == null) return const {};
+    try {
+      final pendientes = await dao.listByObra(obraId);
+      return {for (final p in pendientes) p.hitoId: p.primerFirmante};
+    } catch (e) {
+      debugPrint('Conformidades pendientes no disponibles (obra $obraId): $e');
+      return const {};
+    }
   }
 
   /// CU-50 Alt. 2.2: estado de bloqueo con la Hoja de Ruta intacta.
@@ -342,6 +366,7 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
       milestones: milestones,
       edges: edges,
       schedules: _safeSchedules(milestones, edges),
+      pendingFirmantes: await _pendingFirmantes(hito.obraId),
     );
   }
 
@@ -358,6 +383,7 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
       milestones: milestones,
       edges: edges,
       schedules: _safeSchedules(milestones, edges),
+      pendingFirmantes: await _pendingFirmantes(hito.obraId),
     );
   }
 

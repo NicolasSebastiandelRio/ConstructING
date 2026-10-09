@@ -31,6 +31,7 @@ class CertificationSummaryScreen extends StatefulWidget {
 
   /// Datos maestros del proyecto para el acta (CU-56, opcional).
   final String? obraNombre;
+  final String? propietarioNombre;
 
   /// Rol del firmante de esta conformidad (CU-52): "Profesional" o
   /// "Propietario" (default: Profesional).
@@ -67,6 +68,7 @@ class CertificationSummaryScreen extends StatefulWidget {
     super.key,
     required this.hitoId,
     this.obraNombre,
+    this.propietarioNombre,
     this.firmante,
     this.requiereDobleFirma = true,    this.milestoneDao,
     this.evidenceDao,
@@ -96,6 +98,9 @@ class _CertificationSummaryScreenState
           EvidenceLocalDataSource(localDatabase: LocalDatabase()),
       firmante: widget.firmante ?? 'Profesional',
       requiereDobleFirma: widget.requiereDobleFirma,
+      // CU-56 paso 1: datos maestros del proyecto que se estampan en el acta.
+      obraNombre: widget.obraNombre,
+      propietarioNombre: widget.propietarioNombre,
       actaGenerator: widget.actaGenerator,
       // CU-56 paso 4: el acta compilada queda en el caché local, en la
       // convención de nombres que localiza el CU-54.
@@ -203,7 +208,20 @@ class _SummaryBody extends StatelessWidget {
         state is CertificationSecondSignaturePending
             ? state as CertificationSecondSignaturePending
             : null;
+    // CU-57: bloqueos del flujo colegiado (el lienzo NO se ofrece).
+    final awaiting = state is CertificationAwaitingOtherParty
+        ? state as CertificationAwaitingOtherParty
+        : null;
+    final sinPrimeraFirma = state is CertificationFirstSignatureRequired
+        ? state as CertificationFirstSignatureRequired
+        : null;
+    final sellado = state is CertificationAlreadySealed
+        ? state as CertificationAlreadySealed
+        : null;
     return ListView(
+      // Scroll físico: sin elasticidad ni estiramiento del contenido en los
+      // topes (ClampingScrollPhysics en Android/iOS, CU de UI transversal).
+      physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.all(16),
       children: [
         _HitoSummaryCard(hito: hito),
@@ -329,9 +347,97 @@ class _SummaryBody extends StatelessWidget {
               ],
             ),
           ),
-        const SignaturePad(),
-        const SizedBox(height: 24),
+        // CU-57: el Propietario abrió un hito SIN la conformidad técnica del
+        // profesional responsable → no puede forzar la certificación.
+        if (sinPrimeraFirma != null)
+          _CertificationBlockBanner(
+            message: sinPrimeraFirma.message,
+            color: AppTheme.lightBlue,
+            icon: Icons.hourglass_top_outlined,
+            title: 'ESPERANDO LA CONFORMIDAD DEL PROFESIONAL',
+          ),
+        // CU-57: este rol ya firmó; el acta espera a la otra parte.
+        if (awaiting != null)
+          _CertificationBlockBanner(
+            message: awaiting.message,
+            color: AppTheme.accentGold,
+            icon: Icons.pending_actions_outlined,
+            title: 'CONFORMIDAD COLEGIADA EN ESPERA',
+          ),
+        // CU-57/CU-59: el hito ya tiene su acta sellada y congelada.
+        if (sellado != null)
+          _CertificationBlockBanner(
+            message: sellado.message,
+            color: Colors.greenAccent,
+            icon: Icons.verified_outlined,
+            title: 'HITO CERTIFICADO',
+          ),
+        // CU-51 paso 4 / CU-52: lienzo de conformidad técnica. Solo se
+        // habilita cuando el estado admite firma (guard CU-57): un rol que ya
+        // firmó, un hito sellado o un hito sin conformidad técnica previa no
+        // reciben el lienzo.
+        if (state.signaturePadEnabled) ...[
+          const SignaturePad(),
+          const SizedBox(height: 24),
+        ] else
+          const SizedBox(height: 8),
       ],
+    );
+  }
+}
+
+/// Aviso de bloqueo del flujo colegiado (CU-57): explica por qué el lienzo
+/// de firma NO está disponible en el estado vigente.
+class _CertificationBlockBanner extends StatelessWidget {
+  final String title;
+  final String message;
+  final Color color;
+  final IconData icon;
+
+  const _CertificationBlockBanner({
+    required this.title,
+    required this.message,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.6)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                      color: color,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  message,
+                  style: TextStyle(
+                      color: color.withValues(alpha: 0.9), fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

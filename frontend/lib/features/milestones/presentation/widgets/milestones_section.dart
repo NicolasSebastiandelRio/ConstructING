@@ -9,9 +9,12 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../audit/data/audit_log_writer.dart';
 import '../../../audit/data/datasources/audit_log_local_data_source.dart';
 import '../../../certification/data/datasources/acta_remote_data_source.dart';
+import '../../../certification/data/datasources/certification_local_data_source.dart';
+import '../../../certification/domain/conformidad_roles.dart';
 import '../../../certification/gateway/acta_saver.dart';
 import '../../../certification/presentation/bloc/acta_download_cubit.dart';
 import '../../../certification/presentation/bloc/acta_download_state.dart';
+import '../../../certification/presentation/screens/certification_summary_screen.dart';
 import '../../../evidence/data/datasources/evidence_local_data_source.dart';
 import '../../../evidence/presentation/screens/capture_flow_screen.dart';
 import '../../../evidence/presentation/screens/evidence_gallery_screen.dart';
@@ -86,6 +89,12 @@ class MilestonesSection extends StatelessWidget {
   /// escritor sobre la BD local real).
   final AuditLogWriter? auditLog;
 
+  /// CU-57 (PT-07): borradores de conformidad pendientes de segunda firma.
+  /// La Hoja de Ruta del Propietario los usa para marcar el hito "esperando
+  /// su firma" y para habilitarle la firma SOLO sobre un borrador existente
+  /// (precondición colegiada). En producción se crea sobre la BD local real.
+  final PendingConformidadDataSource? pendingConformidadDao;
+
   const MilestonesSection({
     super.key,
     required this.obraId,
@@ -102,6 +111,7 @@ class MilestonesSection extends StatelessWidget {
     this.obraLongitud,
     this.ownerNotifier,
     this.auditLog,
+    this.pendingConformidadDao,
   });
 
   /// Ancla de la ruta: acepta ISO (yyyy-MM-dd[THH:mm...]) y el formato
@@ -150,6 +160,13 @@ class MilestonesSection extends StatelessWidget {
                       localDatabase: LocalDatabase()),
                 ))
             : auditLog,
+        // CU-57: estado colegiado del hito en la Hoja de Ruta. Con DAO
+        // inyectado se respeta el proveedor de los tests; si no, se abre la
+        // BD local real (producción).
+        pendingConformidadDao: dataSource == null
+            ? (pendingConformidadDao ??
+                PendingConformidadDataSource(localDatabase: LocalDatabase()))
+            : pendingConformidadDao,
         scheduleWriter: scheduleWriter,
         ownerNotifier: ownerNotifier,
       )..add(LoadMilestones(obraId: obraId)),
@@ -277,10 +294,27 @@ class MilestonesSection extends StatelessWidget {
                             ),
                             onEdit: () => _openEditModal(
                                 context, indexed[i].value),
-                            onAdvance: indexed[i].value.estado.next == null
-                                ? null
-                                : () => _openAdvanceDialog(
-                                    context, indexed[i].value),
+                            // CU-50 paso 1: "Iniciar"/"Certificar Etapa" — el
+                            // cierre lo solicita el profesional responsable.
+                            onAdvance: isProfesional &&
+                                    indexed[i].value.estado.next != null
+                                ? () => _openAdvanceDialog(
+                                    context, indexed[i].value)
+                                : null,
+                            // CU-57: el Propietario firma SOLO cuando existe
+                            // el borrador con la primera firma del
+                            // profesional responsable ("esperando su firma").
+                            onFirmarConformidad: !isProfesional &&
+                                    indexed[i].value.estado ==
+                                        MilestoneStatus.enEjecucion &&
+                                    state.pendingFirmantes[
+                                            indexed[i].value.id] ==
+                                        ConformidadRoles.primerFirmante
+                                ? () => _openCertificationSummary(
+                                    context, indexed[i].value)
+                                : null,
+                            pendingPrimerFirmante: state
+                                .pendingFirmantes[indexed[i].value.id],
                             onDelete: indexed[i].value.estado ==
                                     MilestoneStatus.pendiente
                                 ? () => _openDeleteDialog(
@@ -352,17 +386,59 @@ class MilestonesSection extends StatelessWidget {
   /// CU-26/CU-50 paso 1: confirma el avance/cierre. El diálogo recibe los
   /// datos maestros y el rol del firmante para el acta (CU-51/CU-56).
   void _openAdvanceDialog(BuildContext context, Milestone milestone) {
+    final bloc = BlocProvider.of<MilestonesBloc>(context);
     showDialog(
       context: context,
       builder: (_) => BlocProvider.value(
-        value: BlocProvider.of<MilestonesBloc>(context),
+        value: bloc,
         child: AdvanceStatusDialog(
           hito: milestone,
           obraNombre: obraNombre,
-          firmante: isProfesional ? 'Profesional' : 'Propietario',
+          propietarioNombre: propietarioNombre,
+          firmante: isProfesional
+              ? ConformidadRoles.profesional
+              : ConformidadRoles.propietario,
+          // CU-57: al volver del flujo de certificación la Hoja de Ruta se
+          // recarga para reflejar el estado colegiado ("esperando la firma
+          // del propietario" tras la primera firma del profesional).
+          onFlowFinished: () => _recargarHojaDeRuta(bloc),
         ),
       ),
     );
+  }
+
+  /// CU-57 etapa 2 (doble firma): el Propietario entra DIRECTO al CU-51 en
+  /// modo segunda firma. Solo se llega aquí cuando existe el borrador de
+  /// conformidad con la firma del profesional responsable: la Hoja de Ruta
+  /// no ofrece la acción en ningún otro caso y el bloc del CU-51 vuelve a
+  /// validar la precondición.
+  Future<void> _openCertificationSummary(
+    BuildContext context,
+    Milestone milestone,
+  ) async {
+    final bloc = BlocProvider.of<MilestonesBloc>(context);
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CertificationSummaryScreen(
+          hitoId: milestone.id,
+          obraNombre: obraNombre,
+          propietarioNombre: propietarioNombre,
+          firmante: ConformidadRoles.propietario,
+          pendingConformidadDao: pendingConformidadDao,
+        ),
+      ),
+    );
+    // Cerrada la conformidad colegiada, el borrador ya no existe: se recarga
+    // la Hoja de Ruta para reflejar el hito certificado.
+    _recargarHojaDeRuta(bloc);
+  }
+
+  /// Recarga la Hoja de Ruta tras volver del flujo de certificación (CU-57).
+  /// No-op si la sección ya se desmontó (el bloc está cerrado).
+  void _recargarHojaDeRuta(MilestonesBloc bloc) {
+    if (!bloc.isClosed) {
+      bloc.add(LoadMilestones(obraId: obraId));
+    }
   }
 
   /// CU-27 paso 1: cuadro de advertencia antes de eliminar.
@@ -646,6 +722,14 @@ class _MilestoneTile extends StatelessWidget {
   final VoidCallback onViewEvidence;
   final VoidCallback? onDownloadActa;
 
+  /// CU-57: firma de la segunda conformidad colegiada (solo Propietario con
+  /// borrador pendiente del profesional).
+  final VoidCallback? onFirmarConformidad;
+
+  /// CU-57: rol que ya firmó la primera conformidad y espera la segunda
+  /// (null si el hito no tiene conformidad pendiente).
+  final String? pendingPrimerFirmante;
+
   /// Etiqueta de secuencia del roadmap ("HITO 1 DE 3").
   final String? sequenceLabel;
 
@@ -666,6 +750,8 @@ class _MilestoneTile extends StatelessWidget {
     required this.scheduleView,
     this.onCaptureEvidence,
     this.onDownloadActa,
+    this.onFirmarConformidad,
+    this.pendingPrimerFirmante,
     this.sequenceLabel,
   });
 
@@ -752,6 +838,40 @@ class _MilestoneTile extends StatelessWidget {
               sequenceLabel!,
               style: const TextStyle(
                   color: AppTheme.accentGold, fontSize: 10),
+            ),
+          // CU-57: estado de la conformidad colegiada del hito. Para el
+          // Propietario el hito aparece "esperando su firma"; para el
+          // profesional, esperando la refrenda del propietario.
+          if (pendingPrimerFirmante != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: (isProfesional ? AppTheme.lightBlue : AppTheme.accentGold)
+                      .withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: (isProfesional
+                            ? AppTheme.lightBlue
+                            : AppTheme.accentGold)
+                        .withValues(alpha: 0.7),
+                  ),
+                ),
+                child: Text(
+                  isProfesional
+                      ? 'CONFORMIDAD REGISTRADA · ESPERANDO FIRMA DEL PROPIETARIO'
+                      : 'ESPERANDO SU FIRMA (CU-57)',
+                  style: TextStyle(
+                    color: isProfesional
+                        ? AppTheme.lightBlue
+                        : AppTheme.accentGold,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
             ),
           if (milestone.descripcion != null &&
               milestone.descripcion!.trim().isNotEmpty)
@@ -857,25 +977,28 @@ class _MilestoneTile extends StatelessWidget {
         onPressed: onEdit,
       ));
     }
-    // CU-26/CU-50 paso 1: Iniciar (pendiente) — solo Profesional;
-    // CU-57 (doble firma): Certificar Etapa / Firmar conformidad — ambos
-    // roles: quien firma primero queda en espera de la otra parte y el
-    // mismo rol no puede firmar dos veces (guard del bloc de
-    // certificación). Los certificados no ofrecen acción.
-    if (onAdvance != null &&
-        (isProfesional || milestone.estado == MilestoneStatus.enEjecucion)) {
-      final esCierre = milestone.estado != MilestoneStatus.pendiente;
+    // CU-26/CU-50 paso 1: Iniciar (pendiente) — solo Profesional; el cierre
+    // formal lo solicita el profesional responsable ("Certificar Etapa").
+    if (onAdvance != null) {
+      final esInicio = milestone.estado == MilestoneStatus.pendiente;
       actions.add(IconButton(
-        tooltip: esCierre
-            ? (isProfesional
-                ? 'Certificar etapa'
-                : 'Firmar conformidad (Propietario)')
-            : 'Iniciar hito',
+        tooltip: esInicio ? 'Iniciar hito' : 'Certificar etapa',
         icon: Icon(
-          esCierre ? Icons.check_circle_outline : Icons.play_arrow_outlined,
+          esInicio ? Icons.play_arrow_outlined : Icons.check_circle_outline,
           color: Colors.greenAccent,
         ),
         onPressed: onAdvance,
+      ));
+    }
+    // CU-57 (doble firma colegiada): el Propietario SOLO puede firmar cuando
+    // el profesional responsable ya registró la primera conformidad (borrador
+    // pendiente). Sin ese borrador la Hoja de Ruta NO le ofrece la firma: no
+    // puede forzar la certificación.
+    if (onFirmarConformidad != null) {
+      actions.add(IconButton(
+        tooltip: 'Firmar conformidad (Propietario)',
+        icon: const Icon(Icons.draw_outlined, color: Colors.greenAccent),
+        onPressed: onFirmarConformidad,
       ));
     }
     // CU-27 paso 1: solo hitos Pendiente (sin progreso).

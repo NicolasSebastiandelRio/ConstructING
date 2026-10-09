@@ -20,13 +20,21 @@ class AdvanceStatusDialog extends StatefulWidget {
 
   /// Datos maestros y rol del firmante para el acta (CU-51/CU-56).
   final String? obraNombre;
+  final String? propietarioNombre;
   final String? firmante;
+
+  /// CU-57: se invoca cuando el flujo de certificación abierto desde este
+  /// diálogo se cierra (para recargar la Hoja de Ruta con el estado
+  /// colegiado vigente).
+  final VoidCallback? onFlowFinished;
 
   const AdvanceStatusDialog({
     super.key,
     required this.hito,
     this.obraNombre,
+    this.propietarioNombre,
     this.firmante,
+    this.onFlowFinished,
   });
 
   @override
@@ -66,15 +74,20 @@ class _AdvanceStatusDialogState extends State<AdvanceStatusDialog> {
           // iniciar el proceso de doble firma (RF_05).
           setState(() => _isLoading = false);
           Navigator.pop(listenerContext);
-          Navigator.of(listenerContext).push(
-            MaterialPageRoute(
-              builder: (_) => CertificationSummaryScreen(
-                hitoId: state.hitoId,
-                obraNombre: widget.obraNombre,
-                firmante: widget.firmante,
-              ),
-            ),
-          );
+          Navigator.of(listenerContext)
+              .push(
+                MaterialPageRoute(
+                  builder: (_) => CertificationSummaryScreen(
+                    hitoId: state.hitoId,
+                    obraNombre: widget.obraNombre,
+                    propietarioNombre: widget.propietarioNombre,
+                    firmante: widget.firmante,
+                  ),
+                ),
+              )
+              // CU-57: al volver del flujo colegiado se recarga la Hoja de
+              // Ruta (primera firma registrada → "esperando al propietario").
+              .then((_) => widget.onFlowFinished?.call());
         } else if (state is MilestoneCertificationBlocked) {
           // Alt. 2.2 (CU-50): bloqueado → retorna al detalle del hito.
           setState(() => _isLoading = false);

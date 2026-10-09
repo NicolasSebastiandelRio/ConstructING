@@ -15,6 +15,7 @@ import '../../data/datasources/certification_local_data_source.dart';
 import '../../domain/acta_hash.dart';
 import '../../domain/acta_payload.dart';
 import '../../domain/certification_audit.dart';
+import '../../domain/conformidad_roles.dart';
 import '../../domain/entities/signature_stroke.dart';
 import '../../domain/stroke_metadata.dart';
 import '../../domain/validation/signature_stroke_validator.dart';
@@ -56,6 +57,12 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
   /// CU-60 (RF_08): huella imborrable del firmado del acta.
   final AuditLogWriter auditLog;
 
+  /// CU-56 paso 1 (RF_05): datos maestros del proyecto que se estampan en el
+  /// acta compilada (nombre de la obra y del propietario vinculado). Null
+  /// cuando el flujo no los tiene disponibles.
+  final String? obraNombre;
+  final String? propietarioNombre;
+
   /// CU-59 paso 4: tabla de certificaciones de la BD local (sellado
   /// inmutable del acta). Inyectable; null = no registra el sello.
   final CertificationLocalDataSource? certificationDao;
@@ -76,6 +83,8 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
     this.firmante = 'Profesional',
     this.requiereDobleFirma = false,
     this.pendingConformidadDao,
+    this.obraNombre,
+    this.propietarioNombre,
   })  : actaGenerator = actaGenerator ??
             DefaultActaPdfGenerator(
               readImageBytes: const LiveCaptureGateway().readBytes,
@@ -95,9 +104,35 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
         }
         final evidencias = await evidenceDao.listByHito(hito.id);
         CertificationAudit.logSummaryAccessed(hito: hito);
+
+        // CU-57/CU-59: el hito ya está certificado — el acta quedó sellada y
+        // sus registros congelados. Reabrir el resumen NO habilita una nueva
+        // firma (los datos certificados están grabados en piedra).
+        if (hito.estado == MilestoneStatus.certificado) {
+          emit(CertificationAlreadySealed(
+            message: 'El hito ya fue certificado: su acta con doble firma '
+                'quedó sellada y sus registros congelados (CU-57/CU-59).',
+            hito: hito,
+            evidencias: evidencias,
+          ));
+          return;
+        }
+
         final pendiente = await pendingConformidadDao?.findPending(hito.id);
         if (pendiente != null) {
-          if (pendiente.primerFirmante == firmante) {
+          if (!esPrimerFirmanteValido(pendiente.primerFirmante)) {
+            // CU-57 (precondición colegiada): la conformidad colegiada nace
+            // SIEMPRE de la conformidad técnica del profesional responsable.
+            // Un borrador que no nació de esa firma no puede cerrarse (sería
+            // un sello con una firma fabricada): se descarta y el hito
+            // vuelve a requerir la primera firma del profesional.
+            await pendingConformidadDao?.delete(hito.id);
+            emit(CertificationFirstSignatureRequired(
+              message: mensajeSinPrimeraFirma,
+              hito: hito,
+              evidencias: evidencias,
+            ));
+          } else if (pendiente.primerFirmante == firmante) {
             emit(CertificationAwaitingOtherParty(
               message:
                   'Ya registró su firma como ${pendiente.primerFirmante}. La '
@@ -122,6 +157,20 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
           }
           return;
         }
+
+        // CU-57: sin borrador previo la PRIMERA firma corresponde al
+        // profesional responsable. El Propietario que abra un hito sin la
+        // conformidad técnica registrada NO puede forzar la certificación:
+        // se le muestra el resumen en modo lectura, sin lienzo.
+        if (!puedeAbrirConformidad) {
+          emit(CertificationFirstSignatureRequired(
+            message: mensajeSinPrimeraFirma,
+            hito: hito,
+            evidencias: evidencias,
+          ));
+          return;
+        }
+
         emit(CertificationSummaryReady(hito: hito, evidencias: evidencias));
       } catch (e) {
         emit(CertificationError(message: _message(e)));
@@ -129,12 +178,12 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
     });
 
     // CU-52 paso 1: trazo levantado; se acumula sobre el resumen vigente.
-    // CU-57: si este rol YA firmó (borrador pendiente de la otra parte),
-    // el lienzo queda bloqueado — no firma dos veces.
+    // CU-57: solo se acumula si el estado habilita el lienzo — un rol que ya
+    // firmó, un hito sellado o un hito sin conformidad técnica previa quedan
+    // bloqueados (no se degrada el estado bloqueado a uno firmable).
     on<SignatureStrokeCommitted>((event, emit) async {
       final current = state;
-      // Precondición CU-52: solo se firma desde el resumen a certificar.
-      if (current is CertificationAwaitingOtherParty) return;
+      if (!current.signaturePadEnabled) return;
       if (current is! CertificationSummaryReady) return;
       emit(current.copyWith(
         strokes: [
@@ -146,8 +195,10 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
 
     // CU-53 paso 2: borra el buffer del lienzo; poscondición: lienzo en
     // blanco listo para una nueva captura (respuesta instantánea, RNF_U_05).
+    // CU-57: solo sobre un lienzo habilitado (no reabre el acta sellada).
     on<ClearSignaturePad>((event, emit) async {
       final current = state;
+      if (!current.signaturePadEnabled) return;
       if (current is! CertificationSummaryReady) return;
       emit(current.copyWith(strokes: const []));
     });
@@ -162,28 +213,69 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
   }
 
   /// Rol de la otra parte en la conformidad colegiada (CU-57).
-  static String otraParte(String firmante) =>
-      firmante == 'Profesional' ? 'Propietario' : 'Profesional';
+  static String otraParte(String firmante) => ConformidadRoles.otraParte(firmante);
+
+  /// CU-57 (RF_05/RNF_C_05): rol que ABRE la conformidad colegiada. El
+  /// Propietario solo puede refrendar una conformidad técnica ya iniciada:
+  /// la primera firma es siempre del profesional responsable.
+  static const String rolPrimerFirmante = ConformidadRoles.primerFirmante;
+
+  /// CU-57: ¿el borrador de conformidad nació de la firma técnica?
+  static bool esPrimerFirmanteValido(String primerFirmante) =>
+      ConformidadRoles.esPrimerFirmanteValido(primerFirmante);
+
+  /// CU-57: mensaje único del bloqueo por falta de conformidad técnica.
+  static const String mensajeSinPrimeraFirma =
+      'La conformidad colegiada requiere primero la firma del profesional '
+      'responsable: el hito aún no tiene su conformidad técnica registrada.';
+
+  /// CU-57: ¿este rol puede ABRIR la conformidad (primera firma)? Con firma
+  /// simple (legacy) cualquier actor firma; con conformidad colegiada, solo
+  /// el profesional responsable.
+  bool get puedeAbrirConformidad =>
+      !requiereDobleFirma || firmante == rolPrimerFirmante;
 
   Future<void> _onSignatureConfirmation(
     CertificationEvent event,
     Emitter<CertificationState> emit,
   ) async {
     final current = state;
+    // CU-52/CU-57: solo se firma desde un estado que habilita el lienzo. El
+    // acta sellada, la espera de la otra parte y el hito sin conformidad
+    // técnica previa quedan bloqueados (guards del flujo colegiado).
+    if (!current.signaturePadEnabled) return;
     if (current is! CertificationSummaryReady) return;
-    // El acta sellada no admite nuevas firmas.
-    if (current is CertificationSignatureCaptured) return;
-    // CU-57: este rol ya firmó — el sello espera a la OTRA parte.
-    if (current is CertificationAwaitingOtherParty) return;
-    // El mismo rol no firma dos veces: su firma ya está persistida
-    // esperando la otra parte (CU-57 conformidad colegiada).
-    if (current is CertificationAwaitingOtherParty) return;
 
     if (current is CertificationSecondSignaturePending) {
+      // CU-57: el MISMO rol no refrenda su propia conformidad. Sin este
+      // guard, una sola sesión sellaría el acta con una segunda firma
+      // fabricada (firmante2 apuntaría a quien nunca firmó).
+      if (current.primerFirmante == firmante) {
+        emit(CertificationAwaitingOtherParty(
+          message: 'Ya registró su firma como ${current.primerFirmante}. La '
+              'conformidad colegiada espera la firma de '
+              '${otraParte(current.primerFirmante)}.',
+          hito: current.hito,
+          evidencias: current.evidencias,
+        ));
+        return;
+      }
       await _onSecondSignatureConfirmation(event, emit, pending: current);
-    } else {
-      await _onFirstSignatureConfirmation(event, emit, current: current);
+      return;
     }
+
+    // CU-57: la primera firma (apertura de la conformidad colegiada) es
+    // potestad del profesional responsable.
+    if (!puedeAbrirConformidad) {
+      emit(CertificationFirstSignatureRequired(
+        message: mensajeSinPrimeraFirma,
+        hito: current.hito,
+        evidencias: current.evidencias,
+      ));
+      return;
+    }
+
+    await _onFirstSignatureConfirmation(event, emit, current: current);
   }
 
   /// Valida los trazos vigentes (CU-52 paso 2) y extrae los metadatos
@@ -193,6 +285,7 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
   Future<StrokeMetadata?> _validatedMetadatos({
     required List<SignatureStroke> strokes,
     required Milestone hito,
+    required List<Evidence> evidencias,
     Emitter<CertificationState>? emit,
   }) async {
     final check = SignatureStrokeValidator.validate(strokes: strokes);
@@ -201,7 +294,7 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
       emit?.call(CertificationSignatureRejected(
         message: check.reason!,
         hito: hito,
-        evidencias: const [],
+        evidencias: evidencias,
       ));
       return null;
     }
@@ -209,8 +302,10 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
   }
 
   /// Etapa 1 (CU-52): conformidad del [firmante]. Con doble firma activa,
-  /// la conformidad solo queda en espera de la otra parte (CU-57): el
-  /// acta aún no se compila, sella ni congela.
+  /// la conformidad queda EN ESPERA de la otra parte (CU-57): el acta aún no
+  /// se compila, sella ni congela, y esta sesión queda BLOQUEADA (el mismo
+  /// rol no puede refrendar su propia firma: la segunda firma solo llega
+  /// abriendo el resumen con el rol contrario).
   Future<void> _onFirstSignatureConfirmation(
     CertificationEvent event,
     Emitter<CertificationState> emit, {
@@ -219,6 +314,7 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
     final metadatos = await _validatedMetadatos(
       strokes: current.strokes,
       hito: current.hito,
+      evidencias: current.evidencias,
       emit: emit,
     );
     if (metadatos == null) return;
@@ -230,8 +326,8 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
       // CU-57 paso 2/3: la primera firma se PERSISTE como borrador de
       // conformidad (tabla conformidades_pendientes): la otra parte — en
       // otra sesión o rol — puede retomar el flujo y cerrar el acta. El
-      // lienzo se limpia (CU-53, implícito en el estado) para la firma de
-      // la otra parte.
+      // lienzo de ESTA sesión queda inhabilitado (CU-53 implícito): el
+      // cierre colegiado exige la conformidad efectiva de la otra parte.
       await pendingConformidadDao?.save(PendingConformidad(
         hitoId: current.hito.id,
         obraId: current.hito.obraId,
@@ -241,11 +337,10 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
         primerFecha: conformidad,
         createdAt: DateTime.now(),
       ));
-      emit(CertificationSecondSignaturePending(
-        primerFirmante: firmante,
-        trazosPrimeraFirma: trazos,
-        metadatosPrimeraFirma: metadatos,
-        fechaPrimeraConformidad: conformidad,
+      emit(CertificationAwaitingOtherParty(
+        message: 'Su firma como $firmante quedó registrada. La conformidad '
+            'colegiada espera la firma de ${otraParte(firmante)} para sellar '
+            'el acta y congelar el hito (CU-57).',
         hito: current.hito,
         evidencias: current.evidencias,
       ));
@@ -255,6 +350,9 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
     final payload = ActaPayload(
       actaId: const Uuid().v4(),
       hito: current.hito,
+      // CU-56 paso 1: datos maestros del proyecto estampados en el acta.
+      obraNombre: obraNombre,
+      propietarioNombre: propietarioNombre,
       evidencias: current.evidencias,
       trazosFirma: trazos,
       metadatos: metadatos,
@@ -273,6 +371,10 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
 
   /// CU-57 etapa 2: la otra parte confirma su trazo; la conformidad
   /// colegiada compila el acta con ambas firmas y ejecuta el sellado.
+  ///
+  /// Precondición (garantizada por [_onSignatureConfirmation]): este bloque
+  /// solo corre cuando [firmante] es la CONTRAPARTE del primer firmante —
+  /// nunca el mismo rol que ya firmó.
   Future<void> _onSecondSignatureConfirmation(
     CertificationEvent event,
     Emitter<CertificationState> emit, {
@@ -305,12 +407,18 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
     final payload = ActaPayload(
       actaId: const Uuid().v4(),
       hito: pending.hito,
+      // CU-56 paso 1: los datos maestros viajan a la compilación colegiada.
+      obraNombre: obraNombre,
+      propietarioNombre: propietarioNombre,
       evidencias: pending.evidencias,
       trazosFirma: pending.trazosPrimeraFirma,
       metadatos: pending.metadatosPrimeraFirma,
       firmante: pending.primerFirmante,
       fechaConformidad: pending.fechaPrimeraConformidad,
-      segundoFirmante: otraParte(pending.primerFirmante),
+      // CU-56/CU-57: la segunda firma la aporta ESTE actor (el rol
+      // contrario al primer firmante, verificado en la precondición). No se
+      // deduce: se toma del firmante efectivo de la sesión.
+      segundoFirmante: firmante,
       trazosSegundaFirma: strokesSecond,
       metadatosSegundaFirma: StrokeMetadataExtractor.extract(
         trazos: strokesSecond,
@@ -340,6 +448,16 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
     required StrokeMetadata metadatosActa,
     String? firmante2,
   }) async {
+    // CU-57 (invariante de la conformidad colegiada): un acta con doble
+    // firma exige DOS actores distintos. El sello nunca se emite sobre una
+    // firma fabricada (el mismo rol firmando las dos veces).
+    if (firmante2 != null && firmante2 == payload.firmante) {
+      emit(CertificationError(
+        message: 'La conformidad colegiada exige la firma de ambas partes: no '
+            'se sella un acta con el mismo firmante dos veces (CU-57).',
+      ));
+      return;
+    }
     try {
       final bytes = await actaGenerator(payload);
       final persist = persistActa;
