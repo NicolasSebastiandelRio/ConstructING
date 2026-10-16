@@ -39,10 +39,18 @@ export class AuditLogController {
     return this.auditLogService.findAll();
   }
 
-  /** Historial de una obra (CU-63, futuro). */
+  /**
+   * Historial de una obra (CU-63).
+   *
+   * CU-63 pide el orden cronológico: el frontend envía `?order=ASC`. Sin el
+   * parámetro se mantiene el descendente histórico.
+   */
   @Get('audit-logs/obra/:obraId')
-  findByObra(@Param('obraId') obraId: string): Promise<AuditLogEntity[]> {
-    return this.auditLogService.findByObra(obraId);
+  findByObra(
+    @Param('obraId') obraId: string,
+    @Query('order') order?: string,
+  ): Promise<AuditLogEntity[]> {
+    return this.auditLogService.findByObra(obraId, order);
   }
 
   @Get('audit-logs/:id')

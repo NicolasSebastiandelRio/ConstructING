@@ -9,6 +9,9 @@ import '../blocs/works_event.dart';
 import '../blocs/works_state.dart';
 import '../widgets/edit_work_modal.dart';
 import '../../../certification/data/datasources/acta_remote_data_source.dart';
+import '../../../audit/presentation/screens/audit_report_screen.dart';
+import '../../../evidence/data/datasources/evidence_local_data_source.dart';
+import '../../../milestones/presentation/screens/timeline_screen.dart';
 import '../../../milestones/presentation/widgets/milestones_section.dart';
 import '../../../milestones/data/datasources/estimated_end_writer.dart';
 import '../../../milestones/data/datasources/milestone_local_data_source.dart';
@@ -35,6 +38,16 @@ class WorkDetailScreen extends StatefulWidget {
 class _WorkDetailScreenState extends State<WorkDetailScreen> {
   bool get _isProfesional =>
       widget.userRole.toLowerCase().contains('profesional');
+
+  /// CU-64/CU-63: pestaña activa del panel de la obra. Sólo se construye la
+  /// vista seleccionada, de modo que la Línea de Tiempo y el Reporte de
+  /// Auditoría abren sus propios BLoC/DAOs recién cuando se muestran.
+  _WorkDetailView _vista = _WorkDetailView.hojaDeRuta;
+
+  /// CU-65: DAO de evidencias para el Detalle Técnico que abre la Línea de
+  /// Tiempo. En producción sobre la BD local real.
+  late final EvidenceLocalDataSource _evidenceDao =
+      EvidenceLocalDataSource(localDatabase: LocalDatabase());
 
   /// CU-54 paso 2: fuente del acta en el servidor central (PT-07).
   late final ActaRemoteDataSource _actaRemoteSource =
@@ -231,7 +244,24 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
               ],
             ),
             body: SafeArea(
-              child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  // CU-63/CU-64: pestañas del panel de la obra.
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Row(
+                      children: [
+                        _tab('HOJA DE RUTA', _WorkDetailView.hojaDeRuta),
+                        const SizedBox(width: 8),
+                        _tab('AVANCE', _WorkDetailView.avance),
+                        const SizedBox(width: 8),
+                        _tab('AUDITORÍA', _WorkDetailView.auditoria),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: switch (_vista) {
+                      _WorkDetailView.hojaDeRuta => SingleChildScrollView(
                 physics: const ClampingScrollPhysics(),
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
@@ -383,13 +413,51 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                   ],
                 ),
               ),
+                      // CU-64: pestaña "Avance" — Línea de Tiempo vertical.
+                      _WorkDetailView.avance => TimelineScreen(
+                          obraId: current.id,
+                          obraNombre: current.nombre,
+                          obraFechaInicio: current.fechaInicio,
+                          dataSource: widget.milestonesDao,
+                          evidenceDao:
+                              widget.milestonesDao == null ? _evidenceDao : null,
+                          userRole: widget.userRole,
+                          embedded: true,
+                        ),
+                      // CU-63: pestaña "Auditoría" — hoja de ruta forense.
+                      _WorkDetailView.auditoria => AuditReportScreen(
+                          obraId: current.id,
+                          obraNombre: current.nombre,
+                          embedded: true,
+                        ),
+                    },
+                  ),
+                ],
+              ),
             ),
           );
         },
       ),
     );
   }
+
+  /// Selector de vista del panel de la obra (CU-63/CU-64).
+  Widget _tab(String label, _WorkDetailView vista) => ChoiceChip(
+        label: Text(label),
+        selected: _vista == vista,
+        selectedColor: AppTheme.accentGold,
+        labelStyle: TextStyle(
+          color: _vista == vista ? Colors.black : Colors.white70,
+          fontWeight: FontWeight.bold,
+          fontSize: 11,
+        ),
+        onSelected: (_) => setState(() => _vista = vista),
+      );
 }
+
+/// Vistas del panel de la obra (CU-63 Reporte de Auditoría, CU-64 Línea de
+/// Tiempo y la Hoja de Ruta del CU-23).
+enum _WorkDetailView { hojaDeRuta, avance, auditoria }
 
 /// CU-20 paso 1: menú de estado con las fases válidas del enum.
 /// El archivado se excluye a propósito (CU-21 exige obra completada y sin

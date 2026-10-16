@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../audit/data/audit_log_writer.dart';
-import '../../../../core/storage/local_database.dart';
 import '../../../evidence/data/datasources/evidence_local_data_source.dart';
 import '../../../evidence/domain/entities/evidence.dart';
 import '../../../evidence/gateway/capture_gateway.dart';
@@ -17,6 +17,7 @@ import '../../domain/acta_payload.dart';
 import '../../domain/certification_audit.dart';
 import '../../domain/conformidad_roles.dart';
 import '../../domain/entities/signature_stroke.dart';
+import '../../../notifications/data/notification_dispatcher.dart';
 import '../../domain/stroke_metadata.dart';
 import '../../domain/validation/signature_stroke_validator.dart';
 import '../../gateway/acta_paths.dart';
@@ -73,6 +74,16 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
   /// En producción la pantalla crea el DAO sobre la BD local real.
   final PendingConformidadDataSource? pendingConformidadDao;
 
+  /// CU-67/CU-68 (RF_10): motor de alertas. CU-68 avisa al Propietario que el
+  /// acta está lista para firmar (tras la conformidad del profesional) y
+  /// CU-67 avisa el cierre del hito. Opcional: sin él el flujo de
+  /// certificación no cambia (best-effort).
+  final NotificationDispatcher? notificationDispatcher;
+
+  /// CU-67 paso 1: resuelve el `ID del Propietario` de la obra. Inyectable en
+  /// tests; en producción lo provee el módulo de obras.
+  final Future<String?> Function(String obraId)? propietarioDeObra;
+
   CertificationBloc({
     required this.milestoneDao,
     required this.evidenceDao,
@@ -85,6 +96,8 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
     this.pendingConformidadDao,
     this.obraNombre,
     this.propietarioNombre,
+    this.notificationDispatcher,
+    this.propietarioDeObra,
   })  : actaGenerator = actaGenerator ??
             DefaultActaPdfGenerator(
               readImageBytes: const LiveCaptureGateway().readBytes,
@@ -337,6 +350,13 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
         primerFecha: conformidad,
         createdAt: DateTime.now(),
       ));
+      // CU-68 (RF_10): el Módulo de Certificación solicita alertar al
+      // Propietario de que el acta está LISTA PARA FIRMAR (paso 1). Se emite
+      // cuando la conformidad del profesional ya está registrada —es decir,
+      // cuando el acta realmente queda habilitada para su firma (CU-57)—, no
+      // antes: avisar al abrir el CU-50 anunciaría una firma que todavía no
+      // está disponible.
+      await _notificarActaListaParaFirmar(current.hito);
       emit(CertificationAwaitingOtherParty(
         message: 'Su firma como $firmante quedó registrada. La conformidad '
             'colegiada espera la firma de ${otraParte(firmante)} para sellar '
@@ -503,6 +523,9 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
         hito: hitoCongelado,
         strokes: strokesActa,
       );
+      // CU-67 (RF_10): el cierre del hito emite la señal de "Actualización de
+      // Obra" al Propietario (paso 1), con enlace directo a la obra.
+      await _notificarCierreDeHito(hitoCongelado);
       emit(CertificationSignatureCaptured(
         conformidadAt: payload.fechaConformidad,
         hito: hitoCongelado,
@@ -521,4 +544,47 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
       .toString()
       .replaceAll('Exception: ', '')
       .replaceAll('CacheStorageException: ', '');
+
+  /// CU-68 (RF_10): alerta de ALTA PRIORIDAD al Propietario — el acta espera
+  /// su firma. Best-effort: no altera el flujo colegiado.
+  Future<void> _notificarActaListaParaFirmar(Milestone hito) async {
+    final dispatcher = notificationDispatcher;
+    final resolver = propietarioDeObra;
+    if (dispatcher == null || resolver == null) return;
+    try {
+      final propietarioId = await resolver(hito.obraId);
+      if (propietarioId == null || propietarioId.trim().isEmpty) return;
+      await dispatcher.notifySolicitudDeFirma(
+        propietarioId: propietarioId,
+        obraId: hito.obraId,
+        obraNombre: obraNombre ?? hito.obraId,
+        hitoNombre: hito.nombre,
+        hitoId: hito.id,
+      );
+    } catch (e) {
+      debugPrint('CU-68: alerta de firma pendiente (hito ${hito.id}): $e');
+    }
+  }
+
+  /// CU-67 (RF_10): cierre del hito → señal de "Actualización de Obra" al
+  /// Propietario, con enlace directo a la obra (paso 4).
+  Future<void> _notificarCierreDeHito(Milestone hito) async {
+    final dispatcher = notificationDispatcher;
+    final resolver = propietarioDeObra;
+    if (dispatcher == null || resolver == null) return;
+    try {
+      final propietarioId = await resolver(hito.obraId);
+      if (propietarioId == null || propietarioId.trim().isEmpty) return;
+      await dispatcher.notifyAvanceDeObra(
+        propietarioId: propietarioId,
+        obraId: hito.obraId,
+        obraNombre: obraNombre ?? hito.obraId,
+        hitoNombre: hito.nombre,
+        causa: 'cierre del hito',
+        hitoId: hito.id,
+      );
+    } catch (e) {
+      debugPrint('CU-67: alerta de cierre pendiente (hito ${hito.id}): $e');
+    }
+  }
 }

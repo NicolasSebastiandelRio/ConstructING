@@ -1,17 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../../../core/storage/local_database.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_event.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../auth/presentation/screens/welcome_screen.dart';
+import '../../../milestones/data/datasources/milestone_local_data_source.dart';
+import '../../../notifications/data/datasources/notification_local_data_source.dart';
+import '../../../notifications/data/delay_alert_scheduler.dart';
+import '../../../notifications/data/notification_dispatcher.dart';
+import '../../../notifications/presentation/bloc/notifications_bloc.dart';
+import '../../../notifications/presentation/screens/notifications_inbox_screen.dart';
+import '../../../notifications/presentation/widgets/notification_bell.dart';
 import '../../../sync/presentation/widgets/sync_indicator.dart';
 import '../../domain/entities/work_entity.dart';
 import '../blocs/works_bloc.dart';
 import '../blocs/works_event.dart';
 import '../blocs/works_state.dart';
 import '../widgets/new_work_modal.dart';
+import 'dashboard_screen.dart';
 import 'work_detail_screen.dart'; // <--- EL IMPORT QUE FALTABA
 
 class WorksDashboardScreen extends StatefulWidget {
@@ -27,10 +36,29 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
   /// CU-21 paso 4: vista activa vs historial de archivadas.
   bool _showArchived = false;
 
+  /// CU-70/CU-72: `ID de usuario` de la sesión para la bandeja de
+  /// notificaciones y su badge. Null cuando no puede leerse (la campana se
+  /// omite en vez de romper la cabecera).
+  String? _usuarioId;
+
   @override
   void initState() {
     super.initState();
     _loadWorks();
+    _cargarUsuarioId();
+  }
+
+  /// Lee el usuario de la sesión activa (CU-05) para dirigir la bandeja.
+  Future<void> _cargarUsuarioId() async {
+    try {
+      final id = await const FlutterSecureStorage().read(key: 'user_id');
+      if (!mounted) return;
+      setState(() =>
+          _usuarioId = (id == null || id.trim().isEmpty) ? null : id.trim());
+    } catch (_) {
+      // Sin sesión legible (tests o plataforma sin secure storage): la
+      // campana no se muestra; el resto de la pantalla sigue igual.
+    }
   }
 
   /// CU-18: consulta las obras vinculadas al rol del usuario actual.
@@ -49,6 +77,36 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
   }
 
   bool get _isProfesional => widget.userRole.toLowerCase().contains('profesional');
+
+  /// CU-70: el bloc de notificaciones se provee globalmente (`main.dart`). Si
+  /// no está disponible (pruebas aisladas de la cáscara), la campana se omite
+  /// en vez de romper la cabecera con un `ProviderNotFoundException`.
+  bool _hayBlocDeNotificaciones(BuildContext context) {
+    try {
+      context.read<NotificationsBloc>();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// CU-69: cron diario de retrasos del cliente (cacheado). La fecha de inicio
+  /// de cada obra viaja en el propio evento del cron, así que no necesita un
+  /// resolutor global.
+  DelayAlertScheduler? _cronCache;
+
+  DelayAlertScheduler _cronDeRetrasos() {
+    final existente = _cronCache;
+    if (existente != null) return existente;
+    final notificationDao =
+        NotificationLocalDataSource(localDatabase: LocalDatabase());
+    return _cronCache = DelayAlertScheduler(
+      notificationDao: notificationDao,
+      dispatcher: NotificationDispatcher(local: notificationDao),
+      milestonesDao: MilestoneLocalDataSource(localDatabase: LocalDatabase()),
+      obraFechaInicio: (_) async => null,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,12 +131,38 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
             // nube) + panel con el detalle exacto y "Sincronizar Ahora"
             // (CU-49).
             const SyncIndicator(),
-            IconButton(
-              icon: const Icon(Icons.notifications_outlined, color: AppTheme.accentGold),
-              onPressed: () {
-                // Navegación a Notificaciones (Mockup 6)
-              },
-            ),
+            // CU-66: acceso al Dashboard de Obras (panel de control del
+            // Profesional Responsable).
+            if (_isProfesional)
+              IconButton(
+                key: const Key('abrir_dashboard_cu66'),
+                tooltip: 'Dashboard',
+                icon: const Icon(Icons.insights_outlined,
+                    color: AppTheme.accentGold),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => DashboardScreen(
+                      userRole: widget.userRole,
+                      usuarioId: _usuarioId ?? 'anonimo',
+                      // CU-69: cron diario de desvíos temporales del cliente,
+                      // construido sobre la BD local real al abrir el panel.
+                      delayScheduler: _cronDeRetrasos(),
+                    ),
+                  ),
+                ),
+              ),
+            // CU-70 paso 1 / CU-72 paso 4: bandeja de notificaciones con el
+            // indicador de "mensaje nuevo".
+            if (_usuarioId != null && _hayBlocDeNotificaciones(context))
+              NotificationBell(
+                usuarioId: _usuarioId!,
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        NotificationsInboxScreen(usuarioId: _usuarioId!),
+                  ),
+                ),
+              ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.account_circle_outlined, color: AppTheme.accentGold),
               color: AppTheme.darkSurface,

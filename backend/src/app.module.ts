@@ -16,6 +16,9 @@ import { MilestoneSyncEntity } from './sync/milestone-sync.entity';
 import { EvidenceSyncEntity } from './sync/evidence-sync.entity';
 import { CertificationEntity } from './certifications/certification.entity';
 import { AuditLogEntity } from './audit-logs/audit-log.entity';
+import { NotificationsModule } from './notifications/notifications.module';
+import { NotificationEntity } from './notifications/notification.entity';
+import { NotificationPreferenceEntity } from './notifications/notification-preference.entity';
 
 @Module({
   imports: [
@@ -33,7 +36,7 @@ import { AuditLogEntity } from './audit-logs/audit-log.entity';
           return {
             type: 'better-sqlite3', // <- Usamos el driver oficial soportado por TypeORM 0.3.x
             database: ':memory:',
-            entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity, CertificationEntity, AuditLogEntity],
+            entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity, CertificationEntity, AuditLogEntity, NotificationEntity, NotificationPreferenceEntity],
             synchronize: true,
             dropSchema: true,
           };
@@ -48,7 +51,7 @@ import { AuditLogEntity } from './audit-logs/audit-log.entity';
           username: configService.get<string>('DB_USER', 'postgres'),
           password: configService.get<string>('DB_PASSWORD', 'postgres'),
           database: configService.get<string>('DB_NAME', 'constructingsal'),
-          entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity, CertificationEntity, AuditLogEntity],
+          entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity, CertificationEntity, AuditLogEntity, NotificationEntity, NotificationPreferenceEntity],
           synchronize: true,
           ssl:
             configService.get<string>('DB_SSL', 'false') === 'true'
@@ -63,6 +66,7 @@ import { AuditLogEntity } from './audit-logs/audit-log.entity';
     SyncModule,
     CertificationsModule,
     AuditLogsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

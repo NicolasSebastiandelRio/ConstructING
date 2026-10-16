@@ -63,10 +63,18 @@ export class AuditLogService {
     return this.repository.find({ order: { createdAt: 'DESC' } });
   }
 
-  async findByObra(obraId: string): Promise<AuditLogEntity[]> {
+  /**
+   * CU-63: historial de una obra. Por defecto descendente (comportamiento
+   * histórico); con `order=ASC` devuelve el orden cronológico ascendente que
+   * exige la pantalla de auditoría.
+   */
+  async findByObra(
+    obraId: string,
+    order?: string,
+  ): Promise<AuditLogEntity[]> {
     return this.repository.find({
       where: { obraId },
-      order: { createdAt: 'DESC' },
+      order: { createdAt: order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC' },
     });
   }
 

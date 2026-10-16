@@ -15,6 +15,9 @@ import 'features/evidence/data/datasources/evidence_local_data_source.dart';
 import 'features/evidence/domain/crypto/secure_erase.dart';
 import 'features/evidence/gateway/capture_gateway.dart';
 import 'features/milestones/data/datasources/milestone_local_data_source.dart';
+import 'features/notifications/data/datasources/notification_local_data_source.dart';
+import 'features/notifications/data/datasources/notification_remote_data_source.dart';
+import 'features/notifications/presentation/bloc/notifications_bloc.dart';
 import 'features/sync/data/datasources/sync_remote_data_source.dart';
 import 'features/sync/domain/sync_engine.dart';
 import 'features/sync/presentation/bloc/sync_status_cubit.dart';
@@ -99,6 +102,16 @@ void main() {
             cubit.refresh();
             return cubit;
           },
+        ),
+        // Sprint 6 (RF_10): bandeja de notificaciones in-app, badge de la
+        // campana (CU-70/CU-72) y preferencias de canal (CU-71). El cron
+        // diario de retrasos (CU-69) lo arranca el Dashboard con las obras
+        // vigentes; el servidor además tiene su propio cron.
+        BlocProvider<NotificationsBloc>(
+          create: (_) => NotificationsBloc(
+            dao: NotificationLocalDataSource(localDatabase: localDatabase),
+            remote: NotificationRemoteDataSource(dioClient: dioClient),
+          ),
         ),
       ],
       child: const ConstructINGApp(),

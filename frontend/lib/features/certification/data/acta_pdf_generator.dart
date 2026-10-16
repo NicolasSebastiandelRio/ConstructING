@@ -26,8 +26,7 @@ class DefaultActaPdfGenerator {
   ///
   /// Ancho útil de la caja de contenido: A4 (595.28 pt) menos los márgenes
   /// horizontales de [generate] (40 + 40) = 515.28 pt.
-  static const double _contentWidth = 515.28;
-
+  ///
   /// Recuadro de firma individual (firma simple): entra holgado en el ancho
   /// útil.
   static const double _firmaBoxW = 340;

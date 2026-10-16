@@ -30,7 +30,7 @@ class CacheStorageException implements Exception {
 /// imborrable de las transacciones críticas, CU-60, RNF_S_03).
 class LocalDatabase {
   static const String fileName = 'constructing.db';
-  static const int schemaVersion = 7;
+  static const int schemaVersion = 8;
 
   static const String createMilestones = '''
 CREATE TABLE milestones(
@@ -127,6 +127,32 @@ CREATE TABLE audit_log(
   created_at TEXT NOT NULL
 )''';
 
+  /// Bandeja de notificaciones in-app (CU-67..CU-70, RF_10): alertas
+  /// dirigidas a un usuario, con su estado de lectura (CU-72) para el badge
+  /// de la campana. Esquema v8.
+  static const String createNotifications = '''
+CREATE TABLE notifications(
+  id TEXT PRIMARY KEY,
+  usuario_id TEXT NOT NULL,
+  tipo TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  mensaje TEXT NOT NULL,
+  obra_id TEXT,
+  hito_id TEXT,
+  prioridad TEXT NOT NULL DEFAULT 'normal',
+  leida INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+)''';
+
+  /// Preferencias de canal de alerta del usuario (CU-71, RF_10): el booleano
+  /// "Recibir por correo" que decide el canal del despacho (CU-67 paso 2).
+  static const String createNotificationPreferences = '''
+CREATE TABLE notification_preferences(
+  usuario_id TEXT PRIMARY KEY,
+  recibir_por_correo INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+)''';
+
   Database? _db;
 
   /// Instancia lazy compartida por la app.
@@ -159,6 +185,8 @@ CREATE TABLE audit_log(
                 await db.execute(createCertifications);
                 await db.execute(createAuditLog);
                 await db.execute(createPendingConformidades);
+                await db.execute(createNotifications);
+                await db.execute(createNotificationPreferences);
                 await db.execute(
                     'CREATE INDEX idx_milestones_obra ON milestones(obra_id)');
                 await db.execute(
@@ -169,6 +197,8 @@ CREATE TABLE audit_log(
                     'CREATE INDEX idx_certifications_hito ON certifications(hito_id)');
                 await db.execute(
                     'CREATE INDEX idx_audit_log_obra ON audit_log(obra_id)');
+                await db.execute(
+                    'CREATE INDEX idx_notifications_usuario ON notifications(usuario_id)');
               },
               onUpgrade: (db, oldVersion, newVersion) async {
                 // Migración v1 → v2: incorpora evidencias (Sprint 4).
@@ -206,6 +236,14 @@ CREATE TABLE audit_log(
                 // firma (CU-57): persistencia del borrador de conformidad.
                 if (oldVersion == 6) {
                   await db.execute(createPendingConformidades);
+                }
+                // Migración v7 → v8: bandeja de notificaciones y preferencias
+                // de alerta (CU-67..CU-72, RF_10) del Sprint 6.
+                if (oldVersion < 8) {
+                  await db.execute(createNotifications);
+                  await db.execute(createNotificationPreferences);
+                  await db.execute(
+                      'CREATE INDEX idx_notifications_usuario ON notifications(usuario_id)');
                 }
               },
             ),

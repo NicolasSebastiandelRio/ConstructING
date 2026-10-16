@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../audit/data/audit_log_writer.dart';
 import '../../../milestones/domain/entities/milestone.dart';
+import '../../../notifications/data/notification_dispatcher.dart';
 import '../../data/datasources/evidence_local_data_source.dart';
 import '../../domain/checksum/evidence_checksum.dart';
 import '../../domain/crypto/evidence_hash_service.dart';
@@ -163,6 +165,9 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     this.videoDurationReader = readVideoDuration,
     required this.auditLog,
     this.hashService = const EvidenceHashService(),
+    this.notificationDispatcher,
+    this.propietarioDeObra,
+    this.obraNombre,
   }) : super(CaptureFlowReady()) {
     on<CaptureFlowInit>(_onInit);
     on<CapturePhotoRequested>(_onPhoto);
@@ -181,6 +186,18 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
   /// almacenamiento (paso 2). Inyectable en tests; producción usa el motor
   /// real (SHA-256 sobre el binario en memoria).
   final EvidenceHashService hashService;
+
+  /// CU-67 (RF_10): motor de alertas. Al subir una foto el módulo de hitos
+  /// emite la señal de "Actualización de Obra" al Propietario (paso 1).
+  /// Opcional: sin él el guardado local sigue igual (best-effort).
+  final NotificationDispatcher? notificationDispatcher;
+
+  /// CU-67 paso 1: resuelve el `ID del Propietario` de la obra. Inyectable en
+  /// tests; en producción lo provee el módulo de obras.
+  final Future<String?> Function(String obraId)? propietarioDeObra;
+
+  /// Nombre de la obra para el cuerpo de la alerta (CU-67 paso 4).
+  final String? obraNombre;
 
   final CaptureGateway captureGateway;
   final LocationGateway locationGateway;
@@ -452,6 +469,9 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
         obraId: obraId,
         coordenadas: '${draft.latitud},${draft.longitud}',
       );
+      // CU-67: señal de "Actualización de Obra" al Propietario (best-effort:
+      // nunca revierte el guardado, que ya es transaccional).
+      await _notificarAvanceAlPropietario(draft.tipo.label);
       emit(CaptureFlowSaved(
         message: draft.fueraDeObra
             ? 'Evidencia guardada. Su ubicación no coincide con la obra: '
@@ -460,6 +480,32 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
       ));
     } catch (e) {
       emit(CaptureFlowFailure(message: e.toString().replaceAll('Exception: ', '')));
+    }
+  }
+
+  /// CU-67 (RF_10): el módulo de hitos emite la señal de "Actualización de
+  /// Obra" con el `ID del Propietario` tras subir la evidencia; el motor de
+  /// notificaciones aplica las preferencias del receptor (CU-71) y despacha.
+  ///
+  /// Best-effort: la evidencia ya quedó persistida de forma transaccional, así
+  /// que un fallo de la alerta se traza y no revierte nada.
+  Future<void> _notificarAvanceAlPropietario(String tipoEvidencia) async {
+    final dispatcher = notificationDispatcher;
+    final resolver = propietarioDeObra;
+    if (dispatcher == null || resolver == null) return;
+    try {
+      final propietarioId = await resolver(obraId);
+      if (propietarioId == null || propietarioId.trim().isEmpty) return;
+      await dispatcher.notifyAvanceDeObra(
+        propietarioId: propietarioId,
+        obraId: obraId,
+        obraNombre: obraNombre ?? obraId,
+        hitoNombre: hito.nombre,
+        causa: 'evidencia de $tipoEvidencia cargada',
+        hitoId: hito.id,
+      );
+    } catch (e) {
+      debugPrint('CU-67: alerta de avance pendiente (obra $obraId): $e');
     }
   }
 }
