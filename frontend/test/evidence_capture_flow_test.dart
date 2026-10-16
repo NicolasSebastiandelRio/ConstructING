@@ -9,6 +9,9 @@ import 'package:constructing_mobile/features/evidence/gateway/capture_gateway.da
 import 'package:constructing_mobile/features/evidence/gateway/location_gateway.dart';
 import 'package:constructing_mobile/features/evidence/presentation/bloc/capture_flow_bloc.dart';
 import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
+import 'package:constructing_mobile/features/notifications/data/datasources/notification_local_data_source.dart';
+import 'package:constructing_mobile/features/notifications/data/notification_dispatcher.dart';
+import 'package:constructing_mobile/features/notifications/domain/entities/app_notification.dart';
 import 'milestones_test_helpers.dart';
 
 /// PNG 1x1 v�lido: permite que el estampado CU-36 tenga �xito en tests y
@@ -416,5 +419,56 @@ void main() {
 
     // Poscondici�n CU-41: memoria liberada, sin archivos basura (nada persistido).
     expect(await dao.listByHito('h1'), isEmpty);
+  });
+
+  test(
+      'CU-67 (Sprint 6): al guardar la evidencia se emite la señal de '
+      '"Actualización de Obra" al Propietario', () async {
+    final daos = await openSharedTestDaos('cu67');
+    final notificationDao =
+        NotificationLocalDataSource(localDatabase: daos.db);
+    final bloc = CaptureFlowBloc(
+      auditLog: await openTestAuditLogWriter('au67'),
+      captureGateway: FakeCaptureGateway(),
+      locationGateway: FakeLocationGateway(
+        position: const DevicePosition(
+          latitud: anclaLat,
+          longitud: anclaLon,
+          precisionMetros: 5,
+        ),
+      ),
+      evidences: daos.evidences,
+      hito: hito,
+      obraId: 'w1',
+      obraLatitud: anclaLat,
+      obraLongitud: anclaLon,
+      videoDurationReader: (_) async => null,
+      notificationDispatcher: NotificationDispatcher(local: notificationDao),
+      propietarioDeObra: (obraId) async => obraId == 'w1' ? 'owner-1' : null,
+      obraNombre: 'Torre Aurora',
+    );
+    addTearDown(bloc.close);
+
+    bloc.add(CapturePhotoRequested());
+    await expectLater(
+      bloc.stream,
+      emitsInOrder([isA<CaptureFlowProcessing>(), isA<CaptureFlowPreview>()]),
+    );
+    bloc.add(EvidenceSaveRequested());
+    await expectLater(
+      bloc.stream,
+      emitsInOrder([isA<CaptureFlowProcessing>(), isA<CaptureFlowSaved>()]),
+    );
+
+    // CU-67 paso 1/4: la alerta queda dirigida al Propietario con enlace a la
+    // obra; el guardado local no se ve afectado.
+    final bandeja = await notificationDao.listByUsuario('owner-1');
+    expect(bandeja, hasLength(1));
+    expect(bandeja.single.tipo, NotificationTipo.avance);
+    expect(bandeja.single.obraId, 'w1');
+    expect(bandeja.single.hitoId, 'h1');
+    expect(bandeja.single.mensaje, contains('Estructura'));
+    expect(bandeja.single.mensaje, contains('evidencia de Foto cargada'));
+    expect(await daos.evidences.listByHito('h1'), hasLength(1));
   });
 }
