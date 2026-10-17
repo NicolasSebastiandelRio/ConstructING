@@ -38,6 +38,12 @@ dev_dependencies:
   flutter_secure_storage_platform_interface: ^1.1.2
   sqflite_common_ffi: ^2.4.2+1
 
+dependency_overrides:
+  # Fork local del plugin: el unregister NMEA corría en el hilo principal
+  # y activaba ANR al cerrar la petición GPS de la captura (RNF_E_01).
+  geolocator_android:
+    path: plugins/geolocator_android
+
 flutter:
   uses-material-design: true
 
