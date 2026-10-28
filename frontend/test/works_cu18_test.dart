@@ -333,4 +333,31 @@ void main() {
       expect(find.text('Obra A1'), findsOneWidget);
     });
   });
+
+  group('Sprint 6 — confirmación de cierre de sesión desde el botón de atrás', () {
+    // CU-06: el mensaje debe existir para AMBOS tipos de usuario.
+    for (final role in ['Profesional', 'Propietario']) {
+      testWidgets('rol $role: atrás pregunta antes de cerrar sesión',
+          (tester) async {
+        await _pumpDashboard(tester, role: role, works: []);
+        final titulo =
+            role == 'Profesional' ? 'GESTIÓN DE OBRAS' : 'MIS PROYECTOS';
+        expect(find.text(titulo), findsOneWidget);
+
+        // Botón de atrás del sistema / navegador.
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+
+        // Mensaje literal exigido.
+        expect(find.text('¿Está seguro de que desea cerrar sesión?'),
+            findsOneWidget);
+
+        // Cancelar NO cierra la sesión: se queda en la pantalla de obras.
+        await tester.tap(find.text('Cancelar'));
+        await tester.pumpAndSettle();
+        expect(find.text('¿Está seguro de que desea cerrar sesión?'), findsNothing);
+        expect(find.text(titulo), findsOneWidget);
+      });
+    }
+  });
 }

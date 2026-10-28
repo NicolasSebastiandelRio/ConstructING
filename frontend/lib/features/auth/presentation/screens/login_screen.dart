@@ -25,6 +25,21 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Controla si la contraseña se muestra en texto plano o oculta.
   bool _obscurePassword = true;
 
+  /// CU-01 poscondición: nombre visible del saludo de bienvenida.
+  ///
+  /// Se muestra el nombre completo del usuario (RF_01). Si el perfil no tiene
+  /// nombre cargado, se deriva el alias del correo; nunca el rótulo genérico
+  /// "Usuario ConstructING" (el saludo debe decir "Bienvenido (Nombre)").
+  String _nombreVisible(String nombre, String email) {
+    final limpio = nombre.trim();
+    if (limpio.isNotEmpty && limpio.toLowerCase() != 'usuario constructing') {
+      return limpio;
+    }
+    final alias = email.split('@').first.trim();
+    if (alias.isNotEmpty) return alias;
+    return 'Usuario';
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -67,7 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        '¡Bienvenido, ${state.user.nombre}!',
+                        '¡Bienvenido, ${_nombreVisible(state.user.nombre, state.user.email)}!',
                         style: const TextStyle(fontFamily: 'Cinzel'),
                       ),
                       backgroundColor: Colors.green.shade800,

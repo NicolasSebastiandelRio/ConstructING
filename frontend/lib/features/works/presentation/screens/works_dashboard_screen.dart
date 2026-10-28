@@ -119,9 +119,19 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
           );
         }
       },
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(
+      child: PopScope(
+        // CU-06: el botón de atrás (físico/web) en la pantalla de obras de
+        // ambos roles — Profesional y Propietario — NO cierra la sesión de
+        // golpe: primero confirma ("¿Está seguro de que desea cerrar
+        // sesión?"). Solo al confirmar se finaliza; al cancelar se queda.
+        canPop: false,
+        onPopInvoked: (didPop) {
+          if (didPop) return;
+          _confirmCerrarSesion();
+        },
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(
             _isProfesional ? 'GESTIÓN DE OBRAS' : 'MIS PROYECTOS',
             style: const TextStyle(fontFamily: 'Cinzel', color: AppTheme.accentGold, fontWeight: FontWeight.bold),
           ),
@@ -214,7 +224,7 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
                   ),
                   const SizedBox(width: 8),
                   ChoiceChip(
-                    label: const Text('Historial'),
+                    label: const Text('Archivadas'),
                     selected: _showArchived,
                     selectedColor: AppTheme.accentGold,
                     labelStyle: TextStyle(
@@ -298,17 +308,22 @@ class _WorksDashboardScreenState extends State<WorksDashboardScreen> {
                 child: const Icon(Icons.add, color: Colors.black),
                 onPressed: () => _showNewWorkModal(context),
               )
-            : null,
+             : null,
+        ),
       ),
     );
   }
 
-  Future<void> _confirmLogout(BuildContext context) async {
+  Future<void> _confirmLogout(BuildContext context) => _confirmCerrarSesion();
+
+  /// CU-06: diálogo de cierre de sesión (menú "Cerrar Sesión" y botón de
+  /// atrás). Mensaje literal exigido para ambos tipos de usuario.
+  Future<void> _confirmCerrarSesion() async {
     final shouldLogout = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Cerrar Sesión'),
-        content: const Text('¿Desea finalizar la sesión actual?'),
+        content: const Text('¿Está seguro de que desea cerrar sesión?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),

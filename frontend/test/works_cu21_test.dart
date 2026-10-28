@@ -476,11 +476,11 @@ void main() {
       return dataSource;
     }
 
-    testWidgets('el chip Historial pide archivadas y muestra su empty state', (tester) async {
+    testWidgets('el chip Archivadas pide archivadas y muestra su empty state', (tester) async {
       final dataSource = await pumpDashboard(tester);
       expect(dataSource.lastArchivedOnly, isFalse);
 
-      await tester.tap(find.text('Historial'));
+      await tester.tap(find.text('Archivadas'));
       await tester.pumpAndSettle();
 
       expect(dataSource.lastArchivedOnly, isTrue);
