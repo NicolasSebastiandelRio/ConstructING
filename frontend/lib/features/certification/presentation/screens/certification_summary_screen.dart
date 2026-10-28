@@ -7,6 +7,8 @@ import '../../../../core/storage/local_database.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../audit/data/audit_log_writer.dart';
 import '../../../audit/data/datasources/audit_log_local_data_source.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
+import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../evidence/data/datasources/evidence_local_data_source.dart';
 import '../../../evidence/domain/entities/evidence.dart';
 import '../../../milestones/data/datasources/milestone_local_data_source.dart';
@@ -64,12 +66,18 @@ class CertificationSummaryScreen extends StatefulWidget {
   /// escritor sobre la BD local real).
   final AuditLogWriter? auditLog;
 
+  /// CU-56/CU-57: nombre completo del firmante de esta sesión (se anota bajo
+  /// su rúbrica en el acta). Inyectable en tests; en producción se resuelve
+  /// del usuario autenticado (`AuthBloc`). Null = sin nombre disponible.
+  final String? nombreFirmante;
+
   const CertificationSummaryScreen({
     super.key,
     required this.hitoId,
     this.obraNombre,
     this.propietarioNombre,
     this.firmante,
+    this.nombreFirmante,
     this.requiereDobleFirma = true,    this.milestoneDao,
     this.evidenceDao,
     this.actaGenerator,
@@ -98,6 +106,9 @@ class _CertificationSummaryScreenState
           EvidenceLocalDataSource(localDatabase: LocalDatabase()),
       firmante: widget.firmante ?? 'Profesional',
       requiereDobleFirma: widget.requiereDobleFirma,
+      // CU-56/CU-57: nombre del firmante de esta sesión (anotado bajo su
+      // rúbrica). Override de tests > usuario autenticado (AuthBloc global).
+      nombreFirmante: widget.nombreFirmante ?? _nombreDeSesion(),
       // CU-56 paso 1: datos maestros del proyecto que se estampan en el acta.
       obraNombre: widget.obraNombre,
       propietarioNombre: widget.propietarioNombre,
@@ -124,6 +135,25 @@ class _CertificationSummaryScreenState
                 AuditLogLocalDataSource(localDatabase: LocalDatabase()),
           ),
     )..add(LoadCertificationSummary(hitoId: widget.hitoId));
+  }
+
+  /// Resuelve el nombre completo del usuario autenticado desde el `AuthBloc`
+  /// global (CU-56/CU-57: se anota bajo su rúbrica). Null si no hay sesión
+  /// legible (tests aislados sin provider, o plataforma sin secure storage)
+  /// — en ese caso el flujo sigue igual, solo sin el nombre estampado.
+  String? _nombreDeSesion() {
+    try {
+      final state = context.read<AuthBloc>().state;
+      if (state is AuthAuthenticated) {
+        final n = state.user.nombre.trim();
+        if (n.isNotEmpty && n.toLowerCase() != 'usuario constructing') {
+          return n;
+        }
+      }
+    } catch (_) {
+      // Sin AuthBloc en el árbol (widget test aislado): se omite el nombre.
+    }
+    return null;
   }
 
   @override

@@ -34,6 +34,10 @@ class ActaPayload extends Equatable {
   /// o "Propietario" (conformidad del cliente).
   final String firmante;
 
+  /// Nombre completo del primer firmante (CU-56/CU-57: se anota bajo su
+  /// firma, junto a la fecha). Null = sin nombre disponible en el flujo.
+  final String? nombreFirmante;
+
   final DateTime fechaConformidad;
 
   /// --- Conformidad colegiada (CU-57, doble firma) ---
@@ -43,6 +47,10 @@ class ActaPayload extends Equatable {
   /// quedan consolidados en el mismo documento antes del sellado (CU-59).
   /// Null / vacío = acta de firma simple (flujo legacy de una parte).
   final String? segundoFirmante;
+
+  /// Nombre completo del segundo firmante (CU-56/CU-57: se anota bajo su
+  /// firma, junto a la fecha).
+  final String? nombreSegundoFirmante;
   final List<SignatureStroke> trazosSegundaFirma;
   final StrokeMetadata? metadatosSegundaFirma;
   final DateTime? fechaSegundaConformidad;
@@ -59,8 +67,10 @@ class ActaPayload extends Equatable {
     required this.trazosFirma,
     required this.metadatos,
     required this.firmante,
+    this.nombreFirmante,
     required this.fechaConformidad,
     this.segundoFirmante,
+    this.nombreSegundoFirmante,
     this.trazosSegundaFirma = const [],
     this.metadatosSegundaFirma,
     this.fechaSegundaConformidad,
@@ -76,8 +86,10 @@ class ActaPayload extends Equatable {
         trazosFirma,
         metadatos,
         firmante,
+        nombreFirmante,
         fechaConformidad,
         segundoFirmante,
+        nombreSegundoFirmante,
         trazosSegundaFirma,
         metadatosSegundaFirma,
         fechaSegundaConformidad,

@@ -64,6 +64,10 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
   final String? obraNombre;
   final String? propietarioNombre;
 
+  /// CU-56/CU-57: nombre completo del USUARIO de esta sesión (el firmante).
+  /// Se anota bajo su rúbrica en el acta. Null = sin nombre en el flujo.
+  final String? nombreFirmante;
+
   /// CU-59 paso 4: tabla de certificaciones de la BD local (sellado
   /// inmutable del acta). Inyectable; null = no registra el sello.
   final CertificationLocalDataSource? certificationDao;
@@ -96,6 +100,7 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
     this.pendingConformidadDao,
     this.obraNombre,
     this.propietarioNombre,
+    this.nombreFirmante,
     this.notificationDispatcher,
     this.propietarioDeObra,
   })  : actaGenerator = actaGenerator ??
@@ -157,6 +162,7 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
           } else {
             emit(CertificationSecondSignaturePending(
               primerFirmante: pendiente.primerFirmante,
+              nombrePrimerFirmante: pendiente.primerFirmanteNombre,
               trazosPrimeraFirma: [
                 for (final trazo in pendiente.primerTrazos)
                   SignatureStroke.fromJson(trazo),
@@ -345,6 +351,7 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
         hitoId: current.hito.id,
         obraId: current.hito.obraId,
         primerFirmante: firmante,
+        primerFirmanteNombre: nombreFirmante,
         primerTrazos: [for (final t in trazos) t.toJson()],
         primerMetadatos: metadatos.toJson(trazos: trazos),
         primerFecha: conformidad,
@@ -377,6 +384,7 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
       trazosFirma: trazos,
       metadatos: metadatos,
       firmante: firmante,
+      nombreFirmante: nombreFirmante,
       fechaConformidad: conformidad,
     );
     await _generarYSellarActa(
@@ -414,6 +422,7 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
       CertificationAudit.logSignatureRejected(hito: pending.hito);
       emit(CertificationSecondSignaturePending(
         primerFirmante: pending.primerFirmante,
+        nombrePrimerFirmante: pending.nombrePrimerFirmante,
         trazosPrimeraFirma: pending.trazosPrimeraFirma,
         metadatosPrimeraFirma: pending.metadatosPrimeraFirma,
         fechaPrimeraConformidad: pending.fechaPrimeraConformidad,
@@ -434,11 +443,13 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
       trazosFirma: pending.trazosPrimeraFirma,
       metadatos: pending.metadatosPrimeraFirma,
       firmante: pending.primerFirmante,
+      nombreFirmante: pending.nombrePrimerFirmante,
       fechaConformidad: pending.fechaPrimeraConformidad,
       // CU-56/CU-57: la segunda firma la aporta ESTE actor (el rol
       // contrario al primer firmante, verificado en la precondición). No se
       // deduce: se toma del firmante efectivo de la sesión.
       segundoFirmante: firmante,
+      nombreSegundoFirmante: nombreFirmante,
       trazosSegundaFirma: strokesSecond,
       metadatosSegundaFirma: StrokeMetadataExtractor.extract(
         trazos: strokesSecond,

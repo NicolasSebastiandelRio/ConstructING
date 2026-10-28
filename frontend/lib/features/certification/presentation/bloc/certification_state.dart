@@ -100,6 +100,11 @@ class CertificationSecondSignaturePending extends CertificationSummaryReady {
   /// Rol que firmó primero ("Profesional" o "Propietario").
   final String primerFirmante;
 
+  /// CU-56/CU-57: nombre completo del primer firmante (persistido junto al
+  /// borrador para que el acta lo anote bajo su firma cuando cierra la otra
+  /// parte, en otra sesión).
+  final String? nombrePrimerFirmante;
+
   final List<SignatureStroke> trazosPrimeraFirma;
   final StrokeMetadata metadatosPrimeraFirma;
   final DateTime fechaPrimeraConformidad;
@@ -115,6 +120,7 @@ class CertificationSecondSignaturePending extends CertificationSummaryReady {
     required this.fechaPrimeraConformidad,
     required super.hito,
     required super.evidencias,
+    this.nombrePrimerFirmante,
     this.message,
     List<SignatureStroke>? strokes,
   }) : super(strokes: strokes ?? const []);
@@ -127,6 +133,7 @@ class CertificationSecondSignaturePending extends CertificationSummaryReady {
   }) =>
       CertificationSecondSignaturePending(
         primerFirmante: primerFirmante,
+        nombrePrimerFirmante: nombrePrimerFirmante,
         trazosPrimeraFirma: trazosPrimeraFirma,
         metadatosPrimeraFirma: metadatosPrimeraFirma,
         fechaPrimeraConformidad: fechaPrimeraConformidad,
@@ -140,6 +147,7 @@ class CertificationSecondSignaturePending extends CertificationSummaryReady {
   List<Object?> get props => [
         ...super.props,
         primerFirmante,
+        nombrePrimerFirmante,
         trazosPrimeraFirma,
         metadatosPrimeraFirma,
         fechaPrimeraConformidad,

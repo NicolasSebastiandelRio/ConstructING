@@ -4,9 +4,29 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../domain/acta_payload.dart';
+import '../domain/conformidad_roles.dart';
 import '../domain/entities/signature_stroke.dart';
 import '../domain/stroke_metadata.dart';
 import '../../evidence/domain/entities/evidence.dart';
+
+/// CU-56/CU-57: resuelve el nombre completo de un firmante según su rol.
+///
+/// - Propietario: prefiere el nombre del propietario de la obra (el dato
+///   maestro más fiel); si no hay, usa el nombre capturado en su sesión.
+/// - Profesional: usa el nombre de la sesión que abrió la conformidad.
+/// Retorna null cuando no hay ningún nombre disponible.
+String? nombreDelFirmante(
+  String rol,
+  String? nombreSesion,
+  String? propietarioNombre,
+) {
+  if (rol == ConformidadRoles.propietario) {
+    final prop = propietarioNombre?.trim();
+    if (prop != null && prop.isNotEmpty) return prop;
+  }
+  final s = nombreSesion?.trim();
+  return (s != null && s.isNotEmpty) ? s : null;
+}
 
 /// CU-56 (RF_05): motor de renderizado del acta de conformidad.
 ///
@@ -111,8 +131,10 @@ class DefaultActaPdfGenerator {
       pw.Bullet(
           text: 'Obra: ${payload.obraNombre ?? "(sin nombre)"} '
               '(ID ${hito.obraId})'),
-      if (payload.propietarioNombre != null)
-        pw.Bullet(text: 'Propietario: ${payload.propietarioNombre}'),
+      if (payload.propietarioNombre != null &&
+          payload.propietarioNombre!.trim().isNotEmpty)
+        pw.Bullet(
+            text: 'Propietario: ${payload.propietarioNombre!.trim()}'),
       pw.Bullet(
           text: 'Hito: ${hito.nombre} (ID ${hito.id}) - '
               'duración estimada ${hito.duracionDias} días · '
@@ -173,6 +195,11 @@ class DefaultActaPdfGenerator {
                 _firmaBox(
                   width: _firmaBoxWDoble,
                   titulo: payload.firmante,
+                  nombreCompleto: nombreDelFirmante(
+                    payload.firmante,
+                    payload.nombreFirmante,
+                    payload.propietarioNombre,
+                  ),
                   trazos: payload.trazosFirma,
                   metadatos: payload.metadatos,
                   fecha: payload.fechaConformidad,
@@ -181,6 +208,11 @@ class DefaultActaPdfGenerator {
                 _firmaBox(
                   width: _firmaBoxWDoble,
                   titulo: payload.segundoFirmante!,
+                  nombreCompleto: nombreDelFirmante(
+                    payload.segundoFirmante!,
+                    payload.nombreSegundoFirmante,
+                    payload.propietarioNombre,
+                  ),
                   trazos: payload.trazosSegundaFirma,
                   metadatos: payload.metadatosSegundaFirma!,
                   fecha: payload.fechaSegundaConformidad!,
@@ -189,6 +221,11 @@ class DefaultActaPdfGenerator {
             )
           : _firmaBox(
               titulo: payload.firmante,
+              nombreCompleto: nombreDelFirmante(
+                payload.firmante,
+                payload.nombreFirmante,
+                payload.propietarioNombre,
+              ),
               trazos: payload.trazosFirma,
               metadatos: payload.metadatos,
               fecha: payload.fechaConformidad,
@@ -316,12 +353,14 @@ class DefaultActaPdfGenerator {
         style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey800),
       );
 
-  /// Recuadro de una firma manuscrita con su rótulo y fecha (CU-57).
+  /// Recuadro de una firma manuscrita con su rótulo, nombre completo y fecha
+  /// (CU-56/CU-57: "Nombre Apellido" bajo la firma, junto a la fecha).
   ///
   /// [width] es el ancho del recuadro: 340 pt en firma simple y 245 pt en la
   /// conformidad colegiada, donde las dos firmas comparten el ancho útil.
   pw.Widget _firmaBox({
     required String titulo,
+    required String? nombreCompleto,
     required List<SignatureStroke> trazos,
     required StrokeMetadata metadatos,
     required DateTime fecha,
@@ -330,6 +369,7 @@ class DefaultActaPdfGenerator {
   }) {
     final w = width;
     final h = _firmaBoxH + altoExtra;
+    final nombre = nombreCompleto?.trim();
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -348,10 +388,21 @@ class DefaultActaPdfGenerator {
             ),
           ),
         ),
+        // Línea 1: rol + fecha de firma.
         pw.Text(
           '$titulo · ${_fechaText(fecha)}',
           style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
         ),
+        // Línea 2 (CU-56): nombre completo del firmante, bajo su firma.
+        if (nombre != null && nombre.isNotEmpty)
+          pw.Text(
+            nombre,
+            style: const pw.TextStyle(
+              fontSize: 9,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.brown900,
+            ),
+          ),
       ],
     );
   }

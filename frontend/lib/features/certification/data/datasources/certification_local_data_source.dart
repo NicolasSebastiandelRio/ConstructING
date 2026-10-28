@@ -106,14 +106,19 @@ class CertificationLocalDataSource {
 }
 
 /// Borrador de conformidad esperando la segunda firma (CU-57): primera
-/// firma persistida (rol, trazos, metadatos y fecha) hasta que la otra
-/// parte complete la conformidad colegiada o se la descarte.
+/// firma persistida (rol, nombre completo, trazos, metadatos y fecha) hasta
+/// que la otra parte complete la conformidad colegiada o la descarte.
 class PendingConformidad extends Equatable {
   final String hitoId;
   final String obraId;
 
   /// Rol que firmó primero ("Profesional" o "Propietario").
   final String primerFirmante;
+
+  /// CU-56/CU-57: nombre completo del primer firmante (anotado bajo su rúbrica
+  /// en el acta). Null en borradores creados antes del esquema v9 o cuando el
+  /// nombre de la sesión no estuvo disponible.
+  final String? primerFirmanteNombre;
 
   /// Trazos (JSON) y metadatos (JSON) de la primera firma.
   final List<Map<String, dynamic>> primerTrazos;
@@ -129,12 +134,14 @@ class PendingConformidad extends Equatable {
     required this.primerMetadatos,
     required this.primerFecha,
     required this.createdAt,
+    this.primerFirmanteNombre,
   });
 
   Map<String, dynamic> toLocalDb() => {
         'hito_id': hitoId,
         'obra_id': obraId,
         'primer_firmante': primerFirmante,
+        'primer_firmante_nombre': primerFirmanteNombre,
         'primer_trazos': jsonEncode(primerTrazos),
         'primer_metadatos': jsonEncode(primerMetadatos),
         'primer_fecha': primerFecha.toIso8601String(),
@@ -146,6 +153,7 @@ class PendingConformidad extends Equatable {
         hitoId: row['hito_id'] as String,
         obraId: row['obra_id'] as String,
         primerFirmante: row['primer_firmante'] as String,
+        primerFirmanteNombre: row['primer_firmante_nombre'] as String?,
         primerTrazos: [
           for (final item
               in (jsonDecode(row['primer_trazos'] as String) as List))
@@ -161,7 +169,7 @@ class PendingConformidad extends Equatable {
 
   @override
   List<Object?> get props =>
-      [hitoId, obraId, primerFirmante, primerFecha];
+      [hitoId, obraId, primerFirmante, primerFirmanteNombre, primerFecha];
 }
 
 /// Acceso a los borradores de conformidad pendientes (CU-57, doble firma).

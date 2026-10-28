@@ -30,7 +30,7 @@ class CacheStorageException implements Exception {
 /// imborrable de las transacciones críticas, CU-60, RNF_S_03).
 class LocalDatabase {
   static const String fileName = 'constructing.db';
-  static const int schemaVersion = 8;
+  static const int schemaVersion = 9;
 
   static const String createMilestones = '''
 CREATE TABLE milestones(
@@ -106,6 +106,7 @@ CREATE TABLE conformidades_pendientes(
   hito_id TEXT PRIMARY KEY,
   obra_id TEXT NOT NULL,
   primer_firmante TEXT NOT NULL,
+  primer_firmante_nombre TEXT,
   primer_trazos TEXT NOT NULL,
   primer_metadatos TEXT NOT NULL,
   primer_fecha TEXT NOT NULL,
@@ -244,6 +245,13 @@ CREATE TABLE notification_preferences(
                   await db.execute(createNotificationPreferences);
                   await db.execute(
                       'CREATE INDEX idx_notifications_usuario ON notifications(usuario_id)');
+                }
+                // Migración v8 → v9: nombre completo del primer firmante
+                // (CU-56/CU-57: se anota bajo su rúbrica en el acta). Las BD
+                // creadas desde cero con el esquema v9 ya traen la columna.
+                if (oldVersion == 8) {
+                  await db.execute(
+                      'ALTER TABLE conformidades_pendientes ADD COLUMN primer_firmante_nombre TEXT');
                 }
               },
             ),
