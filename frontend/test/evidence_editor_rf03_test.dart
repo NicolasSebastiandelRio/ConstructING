@@ -11,6 +11,7 @@ import 'package:constructing_mobile/features/audit/data/audit_log_writer.dart';
 import 'package:constructing_mobile/features/audit/data/datasources/audit_log_local_data_source.dart';
 import 'package:constructing_mobile/features/evidence/data/datasources/evidence_local_data_source.dart';
 import 'package:constructing_mobile/features/evidence/domain/editing/evidence_edit_ops.dart';
+import 'package:constructing_mobile/features/evidence/domain/datastamp/stamp_layout.dart';
 import 'package:constructing_mobile/features/evidence/domain/entities/evidence.dart';
 import 'package:constructing_mobile/features/evidence/gateway/capture_gateway.dart';
 import 'package:constructing_mobile/features/evidence/gateway/location_gateway.dart';
@@ -188,6 +189,34 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  group('CU-36 - StampLayout (marca proporcional a la imagen)', () {
+    test('una imagen recortada chica NO recibe la fuente fija de 24 px', () {
+      final tamano = StampLayout.fontSizeFor(300, 300);
+      expect(tamano, lessThan(24));
+      expect(tamano, greaterThanOrEqualTo(StampLayout.minFontSize));
+      expect(tamano, closeTo(12.6, 0.5));
+    });
+
+    test('una foto grande se acota al máximo legible', () {
+      expect(StampLayout.fontSizeFor(4000, 3000), StampLayout.maxFontSize);
+    });
+
+    test('usa el LADO MENOR: un recorte ancho y bajo no agranda la marca', () {
+      // Misma anchura, distinta altura: manda el lado menor (600 < 3000).
+      expect(
+        StampLayout.fontSizeFor(4000, 600),
+        lessThan(StampLayout.fontSizeFor(4000, 3000)),
+      );
+      expect(StampLayout.fontSizeFor(4000, 600), closeTo(25.2, 0.5));
+    });
+
+    test('la banda nunca supera el 45% del alto', () {
+      expect(StampLayout.maxBandHeight(1000), 450);
+      expect(StampLayout.fits(textHeight: 400, height: 1000), isTrue);
+      expect(StampLayout.fits(textHeight: 500, height: 1000), isFalse);
     });
   });
 

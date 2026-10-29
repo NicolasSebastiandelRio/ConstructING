@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -61,6 +63,35 @@ void main() {
     secureEraser: (archivo) async =>
         const SecureEraseService().eraseFile(archivo),
   );
+
+  // Diagnóstico de arranque (RNF_C_02): deja constancia del estado REAL del
+  // caché local para detectar pérdidas de datos entre sesiones o navegadores.
+  unawaited(() async {
+    try {
+      final db = await localDatabase.database;
+      final versionRows = await db.rawQuery('PRAGMA user_version');
+      final version = versionRows.isEmpty
+          ? '?'
+          : versionRows.first.values.first.toString();
+      final hitos = await db.rawQuery('SELECT COUNT(*) AS c FROM milestones');
+      final evidencias =
+          await db.rawQuery('SELECT COUNT(*) AS c FROM evidences');
+      // Desglose por obra: permite distinguir "no hay datos" de "los datos
+      // están bajo otra obra" (causa típica de hitos que parecen perdidos).
+      final porObra = await db.rawQuery(
+          'SELECT obra_id, COUNT(*) AS c FROM milestones GROUP BY obra_id');
+      final desglose = porObra
+          .map((r) => '${r['obra_id']}=${r['c']}')
+          .join(', ');
+      debugPrint(
+        '[DB] caché local: version=$version '
+        'hitos=${hitos.first['c']} evidencias=${evidencias.first['c']} '
+        'porObra={$desglose}',
+      );
+    } catch (e) {
+      debugPrint('[DB] no se pudo leer el caché local: $e');
+    }
+  }());
 
   runApp(
     MultiBlocProvider(

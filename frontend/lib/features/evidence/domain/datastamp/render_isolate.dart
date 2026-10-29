@@ -24,10 +24,17 @@ Uint8List _render(Uint8List sourceBytes, List<String> lines) {
   }
 
   // Banda de alto contraste en la base (paso 2).
-  final font = image.width < 640 ? arial14 : arial24;
+  //
+  // La fuente se elige por el LADO MENOR de la imagen: antes se miraba solo
+  // el ancho, así que un recorte vertical chico podía recibir la fuente
+  // grande y el texto tapaba la evidencia (mismo defecto que en web).
+  final ladoMenor = image.width < image.height ? image.width : image.height;
+  final font = ladoMenor < 900 ? arial14 : arial24;
   final lineHeightPx = (font.lineHeight * 1.25).round();
   final textHeight = lines.length * lineHeightPx;
-  final bandHeight = (textHeight + 24).clamp(0, image.height);
+  // La banda nunca supera la mitad del alto.
+  final bandHeight =
+      (textHeight + 24).clamp(0, (image.height * 0.5).round());
   final bandTop = (image.height - bandHeight).clamp(0, image.height);
   im.fillRect(
     image,
