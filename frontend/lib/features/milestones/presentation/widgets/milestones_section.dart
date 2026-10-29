@@ -644,68 +644,70 @@ class _RoadmapStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            width: 36,
-            child: Column(
-              children: [
-                // Conector superior (el primero no tiene: inicia la ruta).
-                Container(
+    // Sin `IntrinsicHeight`: el paso se compone con un Stack donde el riel se
+    // estira con `Positioned.fill` y la tarjeta define la altura del paso.
+    // Con `IntrinsicHeight` + `Row(stretch)` la altura intrínseca del tile
+    // difería 2 px de su altura real de layout y aparecía un desborde
+    // (rayas amarillas) en pantallas anchas.
+    return Stack(
+      children: [
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 36,
+          child: Column(
+            children: [
+              // Conector superior (el primero no tiene: inicia la ruta).
+              Container(
+                width: 2,
+                height: isFirst ? 12 : 14,
+                color: isFirst
+                    ? Colors.transparent
+                    : AppTheme.accentGold.withValues(alpha: 0.5),
+              ),
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppTheme.darkSurface,
+                  border: Border.all(
+                    color: AppTheme.accentGold.withValues(alpha: 0.8),
+                    width: 2,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '$position',
+                  style: const TextStyle(
+                    color: AppTheme.accentGold,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              // Conector inferior (el último no continúa: cierra la ruta).
+              Expanded(
+                child: Container(
                   width: 2,
-                  height: isFirst ? 12 : 14,
-                  color: isFirst
+                  color: isLast
                       ? Colors.transparent
                       : AppTheme.accentGold.withValues(alpha: 0.5),
                 ),
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppTheme.darkSurface,
-                    border: Border.all(
-                      color: AppTheme.accentGold.withValues(alpha: 0.8),
-                      width: 2,
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '$position',
-                    style: const TextStyle(
-                      color: AppTheme.accentGold,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                // Conector inferior (el último no continúa: cierra la ruta).
-                Expanded(
-                  child: Container(
-                    width: 2,
-                    color: isLast
-                        ? Colors.transparent
-                        : AppTheme.accentGold.withValues(alpha: 0.5),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Padding(
-              // Sin `top`: con IntrinsicHeight el tile ya recibe una altura
-              // exacta y ese padding extra provocaba un desborde de 2 px
-              // (rayas de debug) en pantallas anchas.
-              padding: EdgeInsets.only(
-                bottom: isLast ? 0 : 8,
               ),
-              child: child,
-            ),
+            ],
           ),
-        ],
-      ),
+        ),
+        Padding(
+          padding: EdgeInsets.only(
+            left: 36,
+            top: 2,
+            bottom: isLast ? 0 : 8,
+          ),
+          child: child,
+        ),
+      ],
     );
   }
 }
