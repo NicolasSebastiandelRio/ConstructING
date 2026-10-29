@@ -695,9 +695,11 @@ class _RoadmapStep extends StatelessWidget {
           ),
           Expanded(
             child: Padding(
+              // Sin `top`: con IntrinsicHeight el tile ya recibe una altura
+              // exacta y ese padding extra provocaba un desborde de 2 px
+              // (rayas de debug) en pantallas anchas.
               padding: EdgeInsets.only(
                 bottom: isLast ? 0 : 8,
-                top: 2,
               ),
               child: child,
             ),

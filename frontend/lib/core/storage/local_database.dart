@@ -33,7 +33,7 @@ class LocalDatabase {
   static const int schemaVersion = 9;
 
   static const String createMilestones = '''
-CREATE TABLE milestones(
+CREATE TABLE IF NOT EXISTS milestones(
   id TEXT PRIMARY KEY,
   obra_id TEXT NOT NULL,
   nombre TEXT NOT NULL,
@@ -47,7 +47,7 @@ CREATE TABLE milestones(
 )''';
 
   static const String createMilestoneDependencies = '''
-CREATE TABLE milestone_dependencies(
+CREATE TABLE IF NOT EXISTS milestone_dependencies(
   hito_id TEXT NOT NULL,
   predecesor_id TEXT NOT NULL,
   PRIMARY KEY (hito_id, predecesor_id)
@@ -58,7 +58,7 @@ CREATE TABLE milestone_dependencies(
   /// liberar el caché temporal. `fuera_obra` registra el CU-35 soft-fail
   /// (captura fuera del radio perimetral, Sprint 4).
   static const String createEvidences = '''
-CREATE TABLE evidences(
+CREATE TABLE IF NOT EXISTS evidences(
   id TEXT PRIMARY KEY,
   hito_id TEXT NOT NULL,
   obra_id TEXT NOT NULL,
@@ -85,7 +85,7 @@ CREATE TABLE evidences(
   /// firma (CU-57) `firmante2` registra el segundo actor de la conformidad
   /// colegiada (esquema v6).
   static const String createCertifications = '''
-CREATE TABLE certifications(
+CREATE TABLE IF NOT EXISTS certifications(
   acta_id TEXT PRIMARY KEY,
   hito_id TEXT NOT NULL,
   obra_id TEXT NOT NULL,
@@ -102,7 +102,7 @@ CREATE TABLE certifications(
   /// Propietario — en otra sesión o rol — encontrar el hito "esperando su
   /// firma" y cerrarlo (el borrador vive solo en el caché local).
   static const String createPendingConformidades = '''
-CREATE TABLE conformidades_pendientes(
+CREATE TABLE IF NOT EXISTS conformidades_pendientes(
   hito_id TEXT PRIMARY KEY,
   obra_id TEXT NOT NULL,
   primer_firmante TEXT NOT NULL,
@@ -118,7 +118,7 @@ CREATE TABLE conformidades_pendientes(
   /// a qué hora y dónde). Solo INSERT/SELECT: Update/Delete quedan
   /// prohibidos por diseño (RNF_S_03).
   static const String createAuditLog = '''
-CREATE TABLE audit_log(
+CREATE TABLE IF NOT EXISTS audit_log(
   id TEXT PRIMARY KEY,
   usuario_id TEXT NOT NULL,
   accion TEXT NOT NULL,
@@ -132,7 +132,7 @@ CREATE TABLE audit_log(
   /// dirigidas a un usuario, con su estado de lectura (CU-72) para el badge
   /// de la campana. Esquema v8.
   static const String createNotifications = '''
-CREATE TABLE notifications(
+CREATE TABLE IF NOT EXISTS notifications(
   id TEXT PRIMARY KEY,
   usuario_id TEXT NOT NULL,
   tipo TEXT NOT NULL,
@@ -148,7 +148,7 @@ CREATE TABLE notifications(
   /// Preferencias de canal de alerta del usuario (CU-71, RF_10): el booleano
   /// "Recibir por correo" que decide el canal del despacho (CU-67 paso 2).
   static const String createNotificationPreferences = '''
-CREATE TABLE notification_preferences(
+CREATE TABLE IF NOT EXISTS notification_preferences(
   usuario_id TEXT PRIMARY KEY,
   recibir_por_correo INTEGER NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL
@@ -189,70 +189,62 @@ CREATE TABLE notification_preferences(
                 await db.execute(createNotifications);
                 await db.execute(createNotificationPreferences);
                 await db.execute(
-                    'CREATE INDEX idx_milestones_obra ON milestones(obra_id)');
+                    'CREATE INDEX IF NOT EXISTS idx_milestones_obra ON milestones(obra_id)');
                 await db.execute(
-                    'CREATE INDEX idx_dependencies_hito ON milestone_dependencies(hito_id)');
+                    'CREATE INDEX IF NOT EXISTS idx_dependencies_hito ON milestone_dependencies(hito_id)');
                 await db.execute(
-                    'CREATE INDEX idx_evidences_hito ON evidences(hito_id)');
+                    'CREATE INDEX IF NOT EXISTS idx_evidences_hito ON evidences(hito_id)');
                 await db.execute(
-                    'CREATE INDEX idx_certifications_hito ON certifications(hito_id)');
+                    'CREATE INDEX IF NOT EXISTS idx_certifications_hito ON certifications(hito_id)');
                 await db.execute(
-                    'CREATE INDEX idx_audit_log_obra ON audit_log(obra_id)');
+                    'CREATE INDEX IF NOT EXISTS idx_audit_log_obra ON audit_log(obra_id)');
                 await db.execute(
-                    'CREATE INDEX idx_notifications_usuario ON notifications(usuario_id)');
+                    'CREATE INDEX IF NOT EXISTS idx_notifications_usuario ON notifications(usuario_id)');
               },
               onUpgrade: (db, oldVersion, newVersion) async {
-                // Migración v1 → v2: incorpora evidencias (Sprint 4).
+                // Migraciones por RANGO de versión (nunca por igualdad): una
+                // BD que salta varias versiones a la vez —p. ej. la de un
+                // navegador que quedó en v5 y abre el esquema v9— debe recibir
+                // TODAS las estructuras intermedias. Con comparaciones `==` el
+                // salto omitía la creación de tablas y rompía el flujo (CU-57
+                // fallaba con "no such table: conformidades_pendientes").
+                // Las creaciones son idempotentes (IF NOT EXISTS) y las
+                // columnas se agregan de forma tolerante, así re-ejecutar la
+                // migración sobre una BD ya migrada no rompe.
                 if (oldVersion < 2) {
                   await db.execute(createEvidences);
                   await db.execute(
-                      'CREATE INDEX idx_evidences_hito ON evidences(hito_id)');
+                      'CREATE INDEX IF NOT EXISTS idx_evidences_hito ON evidences(hito_id)');
                 }
-                // Migración v2 → v3: flag `fuera_obra` del CU-35 soft-fail.
-                // (v1 → v3 ya creó la tabla con la columna, no se duplica.)
-                if (oldVersion == 2) {
-                  await db.execute(
-                      'ALTER TABLE evidences ADD COLUMN fuera_obra INTEGER NOT NULL DEFAULT 0');
-                }
-                // Migración v3 → v4: tabla de certificaciones (CU-59, PT-07).
                 if (oldVersion < 4) {
                   await db.execute(createCertifications);
                   await db.execute(
-                      'CREATE INDEX idx_certifications_hito ON certifications(hito_id)');
+                      'CREATE INDEX IF NOT EXISTS idx_certifications_hito ON certifications(hito_id)');
                 }
-                // Migración v4 → v5: tabla de auditoría (CU-60, RNF_S_03).
                 if (oldVersion < 5) {
                   await db.execute(createAuditLog);
                   await db.execute(
-                      'CREATE INDEX idx_audit_log_obra ON audit_log(obra_id)');
+                      'CREATE INDEX IF NOT EXISTS idx_audit_log_obra ON audit_log(obra_id)');
                 }
-                // Migración v5 → v6: segunda firma de la conformidad
-                // colegiada (CU-57, PT-07). Las tablas creadas desde cero
-                // con el esquema v6 ya incluyen la columna; no se duplica.
-                if (oldVersion == 5) {
-                  await db.execute(
-                      'ALTER TABLE certifications ADD COLUMN firmante2 TEXT');
-                }
-                // Migración v6 → v7: conformidades pendientes de segunda
-                // firma (CU-57): persistencia del borrador de conformidad.
-                if (oldVersion == 6) {
+                // v6 → v7 (CU-57): borradores de conformidad colegiada.
+                if (oldVersion < 7) {
                   await db.execute(createPendingConformidades);
                 }
-                // Migración v7 → v8: bandeja de notificaciones y preferencias
-                // de alerta (CU-67..CU-72, RF_10) del Sprint 6.
+                // v7 → v8 (CU-67..CU-72): bandeja y preferencias de alerta.
                 if (oldVersion < 8) {
                   await db.execute(createNotifications);
                   await db.execute(createNotificationPreferences);
                   await db.execute(
-                      'CREATE INDEX idx_notifications_usuario ON notifications(usuario_id)');
+                      'CREATE INDEX IF NOT EXISTS idx_notifications_usuario ON notifications(usuario_id)');
                 }
-                // Migración v8 → v9: nombre completo del primer firmante
-                // (CU-56/CU-57: se anota bajo su rúbrica en el acta). Las BD
-                // creadas desde cero con el esquema v9 ya traen la columna.
-                if (oldVersion == 8) {
-                  await db.execute(
-                      'ALTER TABLE conformidades_pendientes ADD COLUMN primer_firmante_nombre TEXT');
-                }
+                // Columnas agregadas después de la creación de cada tabla:
+                // tolerantes a que ya existan (idempotentes entre saltos).
+                await _agregarColumnaSiFalta(
+                    db, 'evidences', 'fuera_obra', 'INTEGER NOT NULL DEFAULT 0');
+                await _agregarColumnaSiFalta(
+                    db, 'certifications', 'firmante2', 'TEXT');
+                await _agregarColumnaSiFalta(db, 'conformidades_pendientes',
+                    'primer_firmante_nombre', 'TEXT');
               },
             ),
           )
@@ -264,6 +256,22 @@ CREATE TABLE notification_preferences(
       throw const CacheStorageException(
         'No se pudo guardar localmente. Verifique el espacio disponible en el dispositivo.',
       );
+    }
+  }
+
+  /// Agrega una columna de forma TOLERANTE: si ya existe (porque la tabla se
+  /// acaba de crear con el esquema nuevo) el error se ignora. Es lo que hace
+  /// idempotente la migración cuando una BD salta varias versiones.
+  static Future<void> _agregarColumnaSiFalta(
+    Database db,
+    String tabla,
+    String columna,
+    String tipo,
+  ) async {
+    try {
+      await db.execute('ALTER TABLE $tabla ADD COLUMN $columna $tipo');
+    } catch (_) {
+      // La columna ya está presente en esta BD: nada que hacer.
     }
   }
 
