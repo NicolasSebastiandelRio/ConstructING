@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 
 import 'package:constructing_mobile/features/evidence/data/datasources/evidence_local_data_source.dart';
 import 'package:constructing_mobile/features/evidence/domain/entities/evidence.dart';
@@ -14,12 +15,16 @@ import 'package:constructing_mobile/features/notifications/data/notification_dis
 import 'package:constructing_mobile/features/notifications/domain/entities/app_notification.dart';
 import 'milestones_test_helpers.dart';
 
-/// PNG 1x1 v�lido: permite que el estampado CU-36 tenga �xito en tests y
-/// que se ejecute el persistFinal (CU-45 Sprint 4).
-const pngBase64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+/// JPEG válido: RF_03 solo admite JPG/JPEG (un PNG se rechaza por contenido).
+/// Permite que el estampado CU-36 tenga éxito y que se ejecute el
+/// persistFinal (CU-45 Sprint 4).
+Uint8List _jpeg({int w = 4, int h = 4}) {
+  final im = img.Image(width: w, height: h);
+  img.fill(im, color: img.ColorRgb8(200, 100, 50));
+  return Uint8List.fromList(img.encodeJpg(im, quality: 90));
+}
 
-/// Fakes de hardware para el flujo de captura (c�mara aislada CU-37 y
+/// Fakes de hardware para el flujo de captura (cámara aislada CU-37 y
 /// GPS CU-34).
 class FakeCaptureGateway implements CaptureGateway {
   FakeCaptureGateway({this.onCapture, Uint8List? bytes})
@@ -35,8 +40,7 @@ class FakeCaptureGateway implements CaptureGateway {
   }
 
   @override
-  Future<List<int>> readBytes(String path) async =>
-      _bytes ?? Uint8List.fromList(base64Decode(pngBase64));
+  Future<List<int>> readBytes(String path) async => _bytes ?? _jpeg();
 
   final List<String> persistedPaths = [];
 

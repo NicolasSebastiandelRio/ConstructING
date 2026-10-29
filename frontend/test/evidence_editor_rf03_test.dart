@@ -12,16 +12,24 @@ import 'package:constructing_mobile/features/audit/data/datasources/audit_log_lo
 import 'package:constructing_mobile/features/evidence/data/datasources/evidence_local_data_source.dart';
 import 'package:constructing_mobile/features/evidence/domain/editing/evidence_edit_ops.dart';
 import 'package:constructing_mobile/features/evidence/domain/datastamp/stamp_layout.dart';
+import 'package:constructing_mobile/features/evidence/domain/validation/evidence_file_validator.dart';
 import 'package:constructing_mobile/features/evidence/domain/entities/evidence.dart';
 import 'package:constructing_mobile/features/evidence/gateway/capture_gateway.dart';
 import 'package:constructing_mobile/features/evidence/gateway/location_gateway.dart';
 import 'package:constructing_mobile/features/evidence/presentation/bloc/capture_flow_bloc.dart';
 import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
 
-/// Imagen PNG sintética de [w]×[h] píxeles.
+/// Imagen JPEG sintética de [w]×[h] píxeles (formato admitido por RF_03).
 Uint8List _imagen({int w = 40, int h = 20}) {
   final im = img.Image(width: w, height: h);
   img.fill(im, color: img.ColorRgb8(200, 100, 50));
+  return Uint8List.fromList(img.encodeJpg(im, quality: 90));
+}
+
+/// Imagen PNG: NO admitida por RF_03 (debe rechazarse con mensaje claro).
+Uint8List _png({int w = 40, int h = 20}) {
+  final im = img.Image(width: w, height: h);
+  img.fill(im, color: img.ColorRgb8(20, 200, 120));
   return Uint8List.fromList(img.encodePng(im));
 }
 
@@ -220,6 +228,28 @@ void main() {
     });
   });
 
+  group('RF_03 - EvidenceFileValidator (solo JPG/JPEG)', () {
+    test('acepta JPEG y rechaza PNG por CONTENIDO', () {
+      expect(EvidenceFileValidator.esJpeg(_imagen()), isTrue);
+      expect(EvidenceFileValidator.rechazo(_imagen()), isNull);
+      expect(EvidenceFileValidator.esJpeg(_png()), isFalse);
+      expect(EvidenceFileValidator.rechazo(_png()),
+          EvidenceFileValidator.notJpegMessage);
+    });
+
+    test('un PNG renombrado a .jpg se rechaza igual', () {
+      expect(
+        EvidenceFileValidator.rechazo(_png(), path: '/tmp/foto.jpg'),
+        EvidenceFileValidator.notJpegMessage,
+      );
+    });
+
+    test('archivo vacío tiene su propio mensaje', () {
+      expect(EvidenceFileValidator.rechazo(const []),
+          EvidenceFileValidator.emptyMessage);
+    });
+  });
+
   group('RF_03 - CaptureFlowBloc con galería y edición', () {
     test('PickPhotoFromGallery usa el selector y NO abre la cámara', () async {
       final ctx = await _contexto('galeria');
@@ -353,6 +383,65 @@ void main() {
       final carga =
           huellas.firstWhere((h) => h.accion == 'evidencia_cargada');
       expect(carga.detalle, contains('origen=galeria'));
+    });
+
+    test('una PNG se RECHAZA con mensaje y no crea evidencia ni abre el editor',
+        () async {
+      final ctx = await _contexto('png');
+      var editorAbierto = false;
+      final bloc = CaptureFlowBloc(
+        captureGateway: _FakeCaptureGateway(bytes: _png()),
+        locationGateway: _FakeLocationGateway(),
+        evidences: ctx.evidences,
+        hito: _hito(),
+        obraId: 'w1',
+        obraLatitud: -34.6037,
+        obraLongitud: -58.3816,
+        auditLog: ctx.auditWriter,
+        videoDurationReader: (_) async => null,
+        editImage: (bytes) async {
+          editorAbierto = true;
+          return bytes;
+        },
+      );
+      addTearDown(bloc.close);
+
+      final espera =
+          expectLater(bloc.stream, emitsThrough(isA<CaptureFlowFailure>()));
+      bloc.add(CapturePhotoRequested());
+      await espera;
+
+      expect((bloc.state as CaptureFlowFailure).message,
+          EvidenceFileValidator.notJpegMessage);
+      expect(editorAbierto, isFalse);
+      expect(await ctx.evidences.listByHito('h1'), isEmpty);
+    });
+
+    test('si el procesamiento de la imagen falla, se informa (no crashea)',
+        () async {
+      final ctx = await _contexto('fallaEditor');
+      final bloc = CaptureFlowBloc(
+        captureGateway: _FakeCaptureGateway(),
+        locationGateway: _FakeLocationGateway(),
+        evidences: ctx.evidences,
+        hito: _hito(),
+        obraId: 'w1',
+        obraLatitud: -34.6037,
+        obraLongitud: -58.3816,
+        auditLog: ctx.auditWriter,
+        videoDurationReader: (_) async => null,
+        editImage: (bytes) async => throw StateError('boom'),
+      );
+      addTearDown(bloc.close);
+
+      final espera =
+          expectLater(bloc.stream, emitsThrough(isA<CaptureFlowFailure>()));
+      bloc.add(CapturePhotoRequested());
+      await espera;
+
+      expect((bloc.state as CaptureFlowFailure).message,
+          contains('No se pudo procesar la imagen'));
+      expect(await ctx.evidences.listByHito('h1'), isEmpty);
     });
   });
 }

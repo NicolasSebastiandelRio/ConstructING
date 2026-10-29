@@ -14,6 +14,7 @@ import '../../domain/datastamp/datastamp.dart';
 import '../../domain/entities/evidence.dart';
 import '../../domain/geo/closeness_validator.dart';
 import '../../domain/limits/video_limit.dart';
+import '../../domain/validation/evidence_file_validator.dart';
 import '../../gateway/capture_gateway.dart';
 import '../../gateway/location_gateway.dart';
 import '../../gateway/video_duration.dart';
@@ -341,7 +342,29 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     );
     final fueraDeObra = !check.allowed;
 
-    var bytes = await captureGateway.readBytes(path);
+    // --- Lectura del binario con manejo de error explícito: un archivo
+    // inaccesible (permiso revocado, blob del navegador liberado) no debe
+    // tumbar el flujo de captura.
+    List<int> bytes;
+    try {
+      bytes = await captureGateway.readBytes(path);
+    } catch (_) {
+      emit(const CaptureFlowFailure(
+        message: 'No se pudo leer el archivo seleccionado.',
+      ));
+      return;
+    }
+
+    // --- RF_03: solo se admiten imágenes JPG/JPEG. Se valida por CONTENIDO
+    // (firma JPEG) para que un PNG —que antes rompía el estampado y la
+    // exportación— se rechace con un mensaje claro en lugar de crashear.
+    if (tipo == EvidenceType.foto) {
+      final rechazo = EvidenceFileValidator.rechazo(bytes, path: path);
+      if (rechazo != null) {
+        emit(CaptureFlowFailure(message: rechazo));
+        return;
+      }
+    }
 
     double? duracionSeg;
     if (tipo == EvidenceType.video) {
@@ -368,7 +391,17 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     // usuario, y la marca nunca queda fuera del recorte.
     if (tipo == EvidenceType.foto && editImage != null) {
       emit(const CaptureFlowProcessing(message: 'Editando la imagen...'));
-      final editada = await editImage!(bytes);
+      List<int>? editada;
+      try {
+        editada = await editImage!(bytes);
+      } catch (_) {
+        // El editor/recorte falló (imagen no procesable): se informa sin
+        // dejar el flujo en un estado inconsistente.
+        emit(const CaptureFlowFailure(
+          message: 'No se pudo procesar la imagen. Intente con otra foto.',
+        ));
+        return;
+      }
       if (editada == null) {
         // Canceló la edición: se vuelve al entorno de captura sin generar
         // archivos ni registros (CU-41).

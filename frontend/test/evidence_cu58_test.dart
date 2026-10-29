@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 
 import 'package:constructing_mobile/features/evidence/data/datasources/evidence_local_data_source.dart';
 import 'package:constructing_mobile/features/evidence/domain/crypto/evidence_hash_service.dart';
@@ -12,9 +13,13 @@ import 'package:constructing_mobile/features/evidence/presentation/bloc/capture_
 import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
 import 'milestones_test_helpers.dart';
 
-/// PNG 1x1 válido: la captura de prueba produce bytes reales en memoria.
-const pngBase64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+/// JPEG válido: RF_03 solo admite JPG/JPEG (un PNG se rechaza). La captura de
+/// prueba produce bytes reales en memoria.
+Uint8List jpegBase64() {
+  final im = img.Image(width: 4, height: 4);
+  img.fill(im, color: img.ColorRgb8(200, 100, 50));
+  return Uint8List.fromList(img.encodeJpg(im, quality: 90));
+}
 
 class FakeCaptureGateway implements CaptureGateway {
   @override
@@ -22,8 +27,7 @@ class FakeCaptureGateway implements CaptureGateway {
       'blob://local/fake';
 
   @override
-  Future<List<int>> readBytes(String path) async =>
-      Uint8List.fromList(base64Decode(pngBase64));
+  Future<List<int>> readBytes(String path) async => jpegBase64();
 
   @override
   Future<String> persistFinal(
@@ -85,14 +89,14 @@ void main() {
 
     test('determinista: mismos bytes, mismo hash', () async {
       const service = EvidenceHashService();
-      final bytes = Uint8List.fromList(base64Decode(pngBase64));
+      final bytes = jpegBase64();
       expect(await service.hashBytes(bytes), await service.hashBytes(bytes));
     });
 
     test('poscondición: alterar un solo píxel cambia radicalmente el hash',
         () async {
       const service = EvidenceHashService();
-      final original = Uint8List.fromList(base64Decode(pngBase64));
+      final original = jpegBase64();
       final alterado = Uint8List.fromList(original)..[10] ^= 0x01;
       final hashOriginal = await service.hashBytes(original);
       final hashAlterado = await service.hashBytes(alterado);
