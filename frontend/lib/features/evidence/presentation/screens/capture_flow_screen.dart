@@ -16,6 +16,7 @@ import '../../gateway/location_gateway.dart';
 import '../../gateway/video_controller_platform.dart';
 import '../bloc/capture_flow_bloc.dart';
 import '../widgets/evidence_mismatch_banner.dart';
+import 'evidence_editor_screen.dart';
 
 /// Flujo de captura de evidencia in situ (CU-31..CU-41, RF_03).
 ///
@@ -68,6 +69,21 @@ class _CaptureFlowScreenState extends State<CaptureFlowScreen> {
         EvidenceLocalDataSource(localDatabase: LocalDatabase());
   }
 
+  /// RF_03 (ajuste post-MVP): abre el editor de recorte/giro sobre los bytes
+  /// recién capturados. Devuelve los bytes editados o null si cancela.
+  Future<List<int>?> _editarImagen(List<int> bytes) async {
+    if (!mounted) return null;
+    final resultado = await Navigator.of(context).push<Uint8List>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => EvidenceEditorScreen(
+          bytes: Uint8List.fromList(bytes),
+        ),
+      ),
+    );
+    return resultado;
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider<CaptureFlowBloc>(
@@ -81,6 +97,13 @@ class _CaptureFlowScreenState extends State<CaptureFlowScreen> {
         obraId: widget.obraId,
         obraLatitud: widget.obraLatitud,
         obraLongitud: widget.obraLongitud,
+        // RF_03: recorte/giro antes de la marca pericial, y selección de una
+        // imagen existente del dispositivo. Los tests que inyectan un
+        // gateway falso no reciben estos hooks (sin cámara ni galería reales).
+        editImage: widget.captureGateway == null ? _editarImagen : null,
+        pickFromGallery: widget.captureGateway == null
+            ? const LiveCaptureGateway().pickPhotoFromGallery
+            : null,
         // CU-60: huella imborrable de la carga de evidencia (solo producción;
         // los tests inyectan su escritor propio).
         auditLog: widget.auditLog ??
@@ -183,8 +206,9 @@ class _ReadyView extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 32),
             child: Text(
-              'Solo puede registrarse lo que tiene frente al lente: '
-              'el acceso a la galería está bloqueado (CU-37).',
+              'Puede tomar la foto en el momento (entorno aislado, CU-37) o '
+              'elegir una imagen existente del dispositivo. En ambos casos '
+              'podrá recortarla y girarla antes de guardarla.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
@@ -199,6 +223,20 @@ class _ReadyView extends StatelessWidget {
                 foregroundColor: Colors.black),
             icon: const Icon(Icons.camera_alt_outlined),
             label: const Text('Capturar Foto'),
+          ),
+          const SizedBox(height: 12),
+          // RF_03 (ajuste post-MVP): elegir una imagen existente.
+          OutlinedButton.icon(
+            key: const Key('pick_from_gallery'),
+            onPressed: () => context
+                .read<CaptureFlowBloc>()
+                .add(PickPhotoFromGalleryRequested()),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.accentGold,
+              side: const BorderSide(color: AppTheme.accentGold),
+            ),
+            icon: const Icon(Icons.photo_library_outlined),
+            label: const Text('Elegir de la galería'),
           ),
           const SizedBox(height: 12),
           // CU-33 paso 1: obturador de video corto (nativo ≤ 30 s).
@@ -246,30 +284,34 @@ class _PreviewViewState extends State<_PreviewView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Vista previa con la marca inalterable ya estampada (CU-36) y,
-          // si la captura no coincide con el ancla (CU-35 soft-fail), la
-          // etiqueta roja permanente sobre la imagen/video.
-          Stack(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: draft.tipo == EvidenceType.foto
-                    ? Image.memory(
-                        Uint8List.fromList(draft.bytes),
-                        fit: BoxFit.contain,
-                        height: 320,
-                      )
-                    // Sprint 4 (CU-33 paso 4): la preview del video ahora es
-                    // REPRODUCIBLE (antes solo un ícono estático): permite
-                    // verificar la toma antes de descartar (CU-41).
-                    : _VideoPreviewPlayer(
-                        path: draft.path,
-                        marcaTexto: draft.marcaTexto,
-                      ),
+          // Vista previa CENTRADA y ACOTADA: no ocupa toda la pantalla y se
+          // mantiene legible en cualquier ancho (móvil o web de escritorio).
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480, maxHeight: 380),
+              child: Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: draft.tipo == EvidenceType.foto
+                        ? Image.memory(
+                            Uint8List.fromList(draft.bytes),
+                            fit: BoxFit.contain,
+                            height: 320,
+                          )
+                        // Sprint 4 (CU-33 paso 4): la preview del video ahora es
+                        // REPRODUCIBLE (antes solo un ícono estático): permite
+                        // verificar la toma antes de descartar (CU-41).
+                        : _VideoPreviewPlayer(
+                            path: draft.path,
+                            marcaTexto: draft.marcaTexto,
+                          ),
+                  ),
+                  if (draft.fueraDeObra)
+                    const EvidenceLocationMismatchBanner(),
+                ],
               ),
-              if (draft.fueraDeObra)
-                const EvidenceLocationMismatchBanner(),
-            ],
+            ),
           ),
           if (draft.fueraDeObra) ...[
             const SizedBox(height: 8),

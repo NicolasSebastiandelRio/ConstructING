@@ -132,6 +132,13 @@ class CaptureFlowInit extends CaptureFlowEvent {}
 /// CU-32 paso 1: encuadra el avance y presiona el obturador.
 class CapturePhotoRequested extends CaptureFlowEvent {}
 
+/// RF_03 (ajuste post-MVP): el usuario ELIGE una imagen existente del
+/// dispositivo en lugar de tomarla en vivo.
+///
+/// La fuente queda registrada en la auditoría (`origen=galeria`) para no
+/// perder la trazabilidad pericial que aportaba el CU-37.
+class PickPhotoFromGalleryRequested extends CaptureFlowEvent {}
+
 /// CU-33 paso 1: inicia la grabación del video corto.
 class RecordVideoRequested extends CaptureFlowEvent {}
 
@@ -168,9 +175,12 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     this.notificationDispatcher,
     this.propietarioDeObra,
     this.obraNombre,
+    this.editImage,
+    this.pickFromGallery,
   }) : super(CaptureFlowReady()) {
     on<CaptureFlowInit>(_onInit);
     on<CapturePhotoRequested>(_onPhoto);
+    on<PickPhotoFromGalleryRequested>(_onPickFromGallery);
     on<RecordVideoRequested>(_onVideo);
     on<EvidenceNoteChanged>(_onNote);
     on<EvidenceDiscardRequested>(_onDiscard);
@@ -199,6 +209,18 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
   /// Nombre de la obra para el cuerpo de la alerta (CU-67 paso 4).
   final String? obraNombre;
 
+  /// RF_03 (ajuste post-MVP): hook de edición de la fotografía. Recibe los
+  /// bytes recién capturados y devuelve los editados (recorte/giro) o `null`
+  /// si el usuario canceló. Se aplica ANTES de estampar la marca pericial
+  /// (CU-36), así la evidencia y su checksum corresponden al encuadre final.
+  /// Inyectable: en tests se omite (sin edición).
+  final Future<List<int>?> Function(List<int> bytes)? editImage;
+
+  /// RF_03: selector de imagen existente del dispositivo (galería). Su
+  /// resultado se registra como `origen=galeria` en la auditoría.
+  /// Inyectable en tests; en producción usa `LiveCaptureGateway`.
+  final Future<String> Function()? pickFromGallery;
+
   final CaptureGateway captureGateway;
   final LocationGateway locationGateway;
   final EvidenceLocalDataSource evidences;
@@ -218,6 +240,11 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
 
   EvidenceDraft? _draft;
   String? _nota;
+
+  /// RF_03 (ajuste post-MVP): origen de la imagen (`camara` o `galeria`).
+  /// Queda anotado en la huella del CU-60 para conservar la trazabilidad
+  /// pericial que aportaba el CU-37 (captura en vivo).
+  String _origen = 'camara';
 
   Future<void> _onInit(
     CaptureFlowInit event,
@@ -239,6 +266,18 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     );
   }
 
+  /// RF_03 (ajuste post-MVP): el usuario elige una imagen ya existente.
+  Future<void> _onPickFromGallery(
+    PickPhotoFromGalleryRequested event,
+    Emitter<CaptureFlowState> emit,
+  ) async {
+    await _captureFlow(
+      tipo: EvidenceType.foto,
+      emit: emit,
+      fromGallery: true,
+    );
+  }
+
   /// CU-33: grabación del video corto de evidencia.
   Future<void> _onVideo(
     RecordVideoRequested event,
@@ -251,21 +290,31 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
   }
 
   /// Flujo común CU-32/CU-33 (pasos 2-4): captura → CU-34 → CU-35 →
-  /// (CU-38) → CU-36 → vista previa.
+  /// (CU-38) → [edición RF_03] → CU-36 → vista previa.
   Future<void> _captureFlow({
     required EvidenceType tipo,
     required Emitter<CaptureFlowState> emit,
+    bool fromGallery = false,
   }) async {
     emit(CaptureFlowProcessing(
       message: tipo == EvidenceType.video
           ? 'Grabando video corto...'
-          : 'Capturando fotografía...',
+          : (fromGallery
+              ? 'Seleccionando imagen del dispositivo...'
+              : 'Capturando fotografía...'),
     ));
+    _origen = fromGallery ? 'galeria' : 'camara';
 
-    // --- CU-31 paso 1 + Alt. 2.1/2.2: apertura con permisos del OS.
+    // --- CU-31 paso 1 + Alt. 2.1/2.2: apertura con permisos del OS, o
+    // selector de imagen existente (RF_03 post-MVP).
     final String path;
     try {
-      path = await captureGateway.capture(tipo: tipo);
+      final selector = pickFromGallery;
+      if (fromGallery && selector != null) {
+        path = await selector();
+      } else {
+        path = await captureGateway.capture(tipo: tipo);
+      }
     } on CameraPermissionException catch (e) {
       emit(CaptureFlowFailure(message: e.message));
       return;
@@ -292,7 +341,7 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
     );
     final fueraDeObra = !check.allowed;
 
-    final bytes = await captureGateway.readBytes(path);
+    var bytes = await captureGateway.readBytes(path);
 
     double? duracionSeg;
     if (tipo == EvidenceType.video) {
@@ -311,6 +360,22 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
         emit(CaptureFlowFailure(message: exceeded));
         return;
       }
+    }
+
+    // --- RF_03 (ajuste post-MVP): recorte/giro de la fotografía ANTES de
+    // estampar la marca pericial (CU-36). Así la evidencia persistida, su
+    // checksum (CU-58) y la marca corresponden al encuadre elegido por el
+    // usuario, y la marca nunca queda fuera del recorte.
+    if (tipo == EvidenceType.foto && editImage != null) {
+      emit(const CaptureFlowProcessing(message: 'Editando la imagen...'));
+      final editada = await editImage!(bytes);
+      if (editada == null) {
+        // Canceló la edición: se vuelve al entorno de captura sin generar
+        // archivos ni registros (CU-41).
+        emit(CaptureFlowReady());
+        return;
+      }
+      if (editada.isNotEmpty) bytes = editada;
     }
 
     // --- CU-36: estampa de marca de agua inalterable (RNF_S_04).
@@ -465,7 +530,8 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
       // no es omitible.
       await auditLog.log(
         accion: 'evidencia_cargada',
-        detalle: 'tipo=${draft.tipo.label} checksum=${hash.toLowerCase()}',
+        detalle:
+            'tipo=${draft.tipo.label} checksum=${hash.toLowerCase()} origen=$_origen',
         obraId: obraId,
         coordenadas: '${draft.latitud},${draft.longitud}',
       );

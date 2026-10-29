@@ -97,12 +97,38 @@ class LiveCaptureGateway implements CaptureGateway {
     return file.path;
   }
 
+  /// RF_03 (ajuste post-MVP): permite elegir una imagen YA EXISTENTE del
+  /// dispositivo.
+  ///
+  /// Es una excepción deliberada al CU-37 (galería bloqueada por diseño),
+  /// solicitada para los casos en que no se puede usar la cámara. Para no
+  /// perder trazabilidad pericial, el origen (`galeria`) queda anotado en la
+  /// huella del CU-60 al guardar la evidencia.
+  Future<String> pickPhotoFromGallery() async {
+    final picker = ImagePicker();
+    final XFile? file;
+    try {
+      file = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        imageQuality: 92,
+      );
+    } on Exception {
+      throw const CameraPermissionException(
+        'Debe otorgar permiso de acceso a las fotos para continuar',
+      );
+    }
+    if (file == null) {
+      throw const CameraPermissionException('Selección cancelada');
+    }
+    return file.path;
+  }
+
   @override
   Future<List<int>> readBytes(String path) async {
     final file = XFile(path);
     return file.readAsBytes();
   }
-
   @override
   Future<String> persistFinal(
     List<int> bytes, {
