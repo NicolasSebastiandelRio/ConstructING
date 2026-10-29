@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:image/image.dart' as img;
 
 import 'stamp_layout.dart';
 
@@ -77,5 +78,13 @@ Future<Uint8List> renderStamp(Uint8List sourceBytes, List<String> lines) async {
   final data = await unified.toByteData(format: ui.ImageByteFormat.png);
   image.dispose();
   unified.dispose();
-  return data!.buffer.asUint8List();
+  final png = data!.buffer.asUint8List();
+
+  // `dart:ui` solo sabe exportar PNG. La evidencia final debe ser JPG/JPEG
+  // (es lo que valida el pipeline y lo que el backend guarda como `.jpg`),
+  // así que se re-encodea una vez. Sin esto, en web la evidencia quedaba en
+  // PNG y el servidor la almacenaba como `.jpg` (archivo corrupto).
+  final decoded = img.decodeImage(png);
+  if (decoded == null) return png;
+  return Uint8List.fromList(img.encodeJpg(decoded, quality: 88));
 }

@@ -11,6 +11,7 @@ import '../../data/datasources/evidence_local_data_source.dart';
 import '../../domain/checksum/evidence_checksum.dart';
 import '../../domain/crypto/evidence_hash_service.dart';
 import '../../domain/datastamp/datastamp.dart';
+import '../../domain/editing/evidence_edit_ops.dart';
 import '../../domain/entities/evidence.dart';
 import '../../domain/geo/closeness_validator.dart';
 import '../../domain/limits/video_limit.dart';
@@ -355,14 +356,27 @@ class CaptureFlowBloc extends Bloc<CaptureFlowEvent, CaptureFlowState> {
       return;
     }
 
-    // --- RF_03: solo se admiten imágenes JPG/JPEG. Se valida por CONTENIDO
-    // (firma JPEG) para que un PNG —que antes rompía el estampado y la
-    // exportación— se rechace con un mensaje claro en lugar de crashear.
+    // --- RF_03: la evidencia final siempre es JPG/JPEG. En vez de rechazar
+    // otros formatos (las capturas de pantalla del celular son PNG) la imagen
+    // se CONVIERTE automáticamente a JPEG, que es lo que espera el resto del
+    // pipeline y el backend. Solo se rechaza lo que no es una imagen.
     if (tipo == EvidenceType.foto) {
       final rechazo = EvidenceFileValidator.rechazo(bytes, path: path);
       if (rechazo != null) {
         emit(CaptureFlowFailure(message: rechazo));
         return;
+      }
+      if (!EvidenceFileValidator.esJpeg(bytes)) {
+        emit(const CaptureFlowProcessing(
+            message: 'Convirtiendo la imagen a JPG...'));
+        final convertida =
+            EvidenceEditOps.rotate(Uint8List.fromList(bytes), 0);
+        if (convertida == null) {
+          emit(const CaptureFlowFailure(
+              message: EvidenceFileValidator.notImageMessage));
+          return;
+        }
+        bytes = convertida.bytes;
       }
     }
 

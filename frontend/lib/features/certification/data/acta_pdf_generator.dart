@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
@@ -13,7 +14,8 @@ import '../../evidence/domain/entities/evidence.dart';
 ///
 /// - Propietario: prefiere el nombre del propietario de la obra (el dato
 ///   maestro más fiel); si no hay, usa el nombre capturado en su sesión.
-/// - Profesional: usa el nombre de la sesión que abrió la conformidad.
+/// - Profesional: usa el nombre del nombre de la sesión que abrió la
+///   conformidad.
 /// Retorna null cuando no hay ningún nombre disponible.
 String? nombreDelFirmante(
   String rol,
@@ -30,11 +32,11 @@ String? nombreDelFirmante(
 
 /// CU-56 (RF_05): motor de renderizado del acta de conformidad.
 ///
-/// Carga la plantilla oficial (template) ConstructING e inyecta los datos
-/// dinámicos del payload: datos maestros del proyecto, evidencias visuales
-/// (fotos disponibles en el caché local) y las firmas dibujadas
-/// vectorialmente. Retorna el archivo compilado en formato binario PDF
-/// listo para ser almacenado y hasheado (CU-57/CU-59 en su turno).
+/// El acta está pensada para el **Propietario**: un documento corto y legible
+/// con lo que le importa —qué obra y qué hito se certifican, quiénes firman,
+/// cuándo y qué fotos respaldan el avance—. Los identificadores internos, los
+/// hashes y la matriz biométrica NO se imprimen: siguen guardados en el
+/// registro digital sellado (CU-58/CU-59) pero no ensucian el documento.
 class DefaultActaPdfGenerator {
   DefaultActaPdfGenerator({this.readImageBytes});
 
@@ -42,13 +44,13 @@ class DefaultActaPdfGenerator {
   /// plataforma). Null si el archivo no está disponible en el caché.
   final Future<List<int>?> Function(String archivo)? readImageBytes;
 
+  /// Ruta del logo institucional declarado en `pubspec.yaml`.
+  static const String logoAsset = 'assets/images/logo.png';
+
   /// Caja del recuadro de firma, en puntos PDF.
   ///
-  /// Ancho útil de la caja de contenido: A4 (595.28 pt) menos los márgenes
-  /// horizontales de [generate] (40 + 40) = 515.28 pt.
-  ///
-  /// Recuadro de firma individual (firma simple): entra holgado en el ancho
-  /// útil.
+  /// El ancho útil de la caja de contenido es A4 (595.28 pt) menos los
+  /// márgenes horizontales de [generate] (40 + 40) = 515.28 pt.
   static const double _firmaBoxW = 340;
 
   /// Recuadro de firma en la conformidad COLEGIADA (CU-57): las dos firmas
@@ -59,15 +61,19 @@ class DefaultActaPdfGenerator {
   /// (`PdfTooBigPageException`).
   static const double _firmaBoxWDoble = 245;
   static const double _firmaGap = 24;
-  static const double _firmaBoxH = 150;
+  static const double _firmaBoxH = 140;
 
-  /// Puntos de la matriz de trazos que se transcriben al acta por firma
-  /// (muestra de inicio y de cierre). Ver [_biometriaBox].
-  static const int _puntosMuestra = 6;
+  /// Máximo de fotografías que se incluyen en el acta (las más recientes se
+  /// listan primero): un acta breve no debe convertirse en un álbum.
+  static const int maxFotos = 4;
 
   Future<Uint8List> generate(ActaPayload payload) async {
     final doc = pw.Document();
+    final logo = await _loadLogo();
     final visuales = await _registrosVisuales(payload.evidencias);
+    final fechaDocumento =
+        payload.fechaSegundaConformidad ?? payload.fechaConformidad;
+
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
@@ -75,25 +81,37 @@ class DefaultActaPdfGenerator {
         footer: (context) => pw.Container(
           alignment: pw.Alignment.center,
           child: pw.Text(
-            'ConstructING 2026 · Acta ${payload.actaId} · '
+            'ConstructING · ${_fechaCorta(fechaDocumento)} · '
             'Página ${context.pageNumber} de ${context.pagesCount}',
-            style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
           ),
         ),
-        build: (context) => _template(context, payload, visuales),
+        build: (context) =>
+            _template(context, payload, visuales, logo, fechaDocumento),
       ),
     );
     return doc.save();
   }
 
+  /// Logo institucional. Si el asset no está disponible (por ejemplo en un
+  /// test sin bundle) el acta se genera igual, sin logo.
+  Future<pw.MemoryImage?> _loadLogo() async {
+    try {
+      final data = await rootBundle.load(logoAsset);
+      return pw.MemoryImage(data.buffer.asUint8List());
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Evidencias con imagen disponible localmente: se incrustan en el acta;
-  /// las que ya liberaron el caché (sincronizadas) o los videos se listan
-  /// sin imagen.
+  /// las que ya liberaron el caché (sincronizadas) o los videos se omiten.
   Future<List<(Evidence, pw.ImageProvider)>> _registrosVisuales(
     List<Evidence> evidencias,
   ) async {
     final result = <(Evidence, pw.ImageProvider)>[];
     for (final evidencia in evidencias) {
+      if (result.length >= maxFotos) break;
       if (evidencia.esVideo) continue;
       final archivo = evidencia.archivo;
       if (archivo.trim().isEmpty) continue;
@@ -102,8 +120,8 @@ class DefaultActaPdfGenerator {
         if (bytes == null || bytes.isEmpty) continue;
         result.add((evidencia, pw.MemoryImage(Uint8List.fromList(bytes))));
       } catch (_) {
-        // Registro visual no disponible en el caché: se lista sin imagen
-        // (el acta nunca se bloquea por una foto faltante).
+        // Registro visual no disponible en el caché: el acta nunca se
+        // bloquea por una foto faltante.
       }
     }
     return result;
@@ -113,79 +131,47 @@ class DefaultActaPdfGenerator {
     pw.Context context,
     ActaPayload payload,
     List<(Evidence, pw.ImageProvider)> visuales,
+    pw.MemoryImage? logo,
+    DateTime fechaDocumento,
   ) {
     final hito = payload.hito;
+    final propietario = payload.propietarioNombre?.trim();
+    final profesional = nombreDelFirmante(
+      ConformidadRoles.profesional,
+      payload.nombreFirmante,
+      null,
+    );
 
     return [
-      pw.Header(
-        level: 0,
-        text: 'ACTA DE CONFORMIDAD TÉCNICA',
-      ),
-      pw.Text(
-        'ConstructING - Ecosistema de Gestión y Auditoría Técnica de Obras',
-        style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
-      ),
-      pw.SizedBox(height: 12),
-      _seccion('I. DATOS MAESTROS DEL PROYECTO'),
-      pw.Bullet(text: 'Acta N°: ${payload.actaId}'),
-      pw.Bullet(
-          text: 'Obra: ${payload.obraNombre ?? "(sin nombre)"} '
-              '(ID ${hito.obraId})'),
-      if (payload.propietarioNombre != null &&
-          payload.propietarioNombre!.trim().isNotEmpty)
-        pw.Bullet(
-            text: 'Propietario: ${payload.propietarioNombre!.trim()}'),
-      pw.Bullet(
-          text: 'Hito: ${hito.nombre} (ID ${hito.id}) - '
-              'duración estimada ${hito.duracionDias} días · '
-              'estado al certificar: ${hito.estado.label}'
-              '${hito.esCritico ? " · hito de RUTA CRÍTICA" : ""}'),
-      if (hito.descripcion != null && hito.descripcion!.trim().isNotEmpty)
-        pw.Bullet(text: 'Descripción técnica: ${hito.descripcion}'),
-      pw.SizedBox(height: 12),
+      _encabezado(logo, fechaDocumento),
+      pw.SizedBox(height: 14),
 
-      _seccion('II. EVIDENCIAS VINCULADAS AL HITO (${payload.evidencias.length})'),
-      if (payload.evidencias.isEmpty)
-        pw.Text('Sin registros en la BD.',
-            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600))
-      else ...[
-        for (var i = 0; i < payload.evidencias.length; i++)
-          _evidenciaRow(i + 1, payload.evidencias[i]),
-      ],
-      pw.SizedBox(height: 12),
+      _seccion('DATOS DE LA OBRA'),
+      if (payload.obraNombre != null && payload.obraNombre!.trim().isNotEmpty)
+        _dato('Obra', payload.obraNombre!.trim()),
+      _dato('Hito certificado', hito.nombre),
+      if (hito.descripcion != null && hito.descripcion!.trim().isNotEmpty)
+        _dato('Descripción', hito.descripcion!.trim()),
+      if (propietario != null && propietario.isNotEmpty)
+        _dato('Propietario', propietario),
+      if (profesional != null) _dato('Profesional responsable', profesional),
+      _dato('Fecha de conformidad', _fechaText(fechaDocumento)),
+      pw.SizedBox(height: 14),
 
       if (visuales.isNotEmpty) ...[
-        _seccion('III. REGISTROS VISUALES DEL AVANCE'),
-        for (final (evidencia, provider) in visuales)
-          pw.Container(
-            margin: const pw.EdgeInsets.only(bottom: 10),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Container(
-                  width: 220,
-                  height: 165,
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey400),
-                  ),
-                  child: pw.Image(provider, fit: pw.BoxFit.cover),
-                ),
-                pw.Text(
-                  '${evidencia.tipo.label} · '
-                  '${_fechaText(evidencia.fechaCaptura)} · '
-                  'GPS ${evidencia.latitud.toStringAsFixed(5)}, '
-                  '${evidencia.longitud.toStringAsFixed(5)}',
-                  style: const pw.TextStyle(
-                      fontSize: 8, color: PdfColors.grey700),
-                ),
-              ],
-            ),
-          ),
-        pw.SizedBox(height: 12),
+        _seccion('REGISTRO FOTOGRÁFICO'),
+        pw.Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final (evidencia, provider) in visuales)
+              _foto(evidencia, provider),
+          ],
+        ),
+        pw.SizedBox(height: 14),
       ],
 
-      _seccion(
-          '${visuales.isEmpty ? "III" : "IV"}. CONFORMIDAD TÉCNICA (RF_05)'),
+      _seccion('FIRMAS'),
       // CU-57 (doble firma): conformidad colegiada — ambas partes firman el
       // mismo documento antes del sellado criptográfico (CU-59).
       payload.conDobleFirma
@@ -229,129 +215,120 @@ class DefaultActaPdfGenerator {
               trazos: payload.trazosFirma,
               metadatos: payload.metadatos,
               fecha: payload.fechaConformidad,
-              altoExtra: 86,
+              altoExtra: 80,
             ),
+      pw.SizedBox(height: 10),
       pw.Text(
         payload.conDobleFirma
-            ? 'Firma manuscrita en pantalla de ambos firmantes '
-                '(${payload.firmante} y ${payload.segundoFirmante}). '
-                'Conformidad colegiada otorgada: el acta queda sellada '
-                '(CU-59) y los registros congelados (CU-57).'
-            : 'Firma manuscrita en pantalla del ${payload.firmante} '
-                '(${payload.trazosFirma.length} trazo(s) capturado(s)). El '
-                'proceso de doble firma se completa con la conformidad de '
-                'la otra parte.',
-        style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+            ? 'Las dos partes otorgan su conformidad sobre el avance '
+                'registrado en esta acta. La evidencia y las firmas quedan '
+                'resguardadas digitalmente.'
+            : 'El profesional responsable otorga su conformidad sobre el '
+                'avance registrado en esta acta.',
+        style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
       ),
-      pw.SizedBox(height: 12),
-
-      _seccion(
-          '${visuales.isEmpty ? "IV" : "V"}. DATOS BIOMÉTRICOS DEL TRAZO '
-          '(CU-55, acoplados al acta)'),
-      for (final (firmanteDe, metadatos, trazos) in [
-        (
-          payload.firmante,
-          payload.metadatos,
-          payload.trazosFirma,
-        ),
-        if (payload.conDobleFirma)
-          (
-            payload.segundoFirmante!,
-            payload.metadatosSegundaFirma!,
-            payload.trazosSegundaFirma,
-          ),
-      ])
-        _biometriaBox(firmanteDe, metadatos, trazos),
     ];
   }
 
-  /// CU-55: bloque biométrico ACOTADO de una firma.
-  ///
-  /// El acta es un documento legal de extensión acotada: la matriz completa
-  /// de puntos (cientos o miles por firma) NO se transcribe. Volcarla como
-  /// JSON indentado producía decenas de páginas por firma —y más de 20 en la
-  /// conformidad colegiada, que lleva dos— hasta romper el renderizado con
-  /// `PdfTooBigPageException`.
-  ///
-  /// Se imprimen los AGREGADOS biométricos (conteos, longitud, duración,
-  /// velocidad, presión y área de captura) y una MUESTRA del inicio y del
-  /// cierre del trazo, dejando constancia en el propio documento de que la
-  /// matriz completa queda acoplada al registro digital sellado (CU-59): el
-  /// acta no oculta nada, solo no la despliega.
-  pw.Widget _biometriaBox(
-    String firmanteDe,
-    StrokeMetadata metadatos,
-    List<SignatureStroke> trazos,
-  ) {
-    final puntos = [for (final trazo in trazos) ...trazo.points];
-    final inicio = puntos.take(_puntosMuestra).toList();
-    final cierre = puntos.length <= _puntosMuestra * 2
-        ? const <SignaturePoint>[]
-        : puntos.sublist(puntos.length - _puntosMuestra);
-    final omitidos = puntos.length - inicio.length - cierre.length;
+  /// Encabezado institucional: logo + nombre de la app + fecha.
+  pw.Widget _encabezado(pw.MemoryImage? logo, DateTime fechaDocumento) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            if (logo != null) ...[
+              pw.Container(
+                width: 46,
+                height: 46,
+                child: pw.Image(logo, fit: pw.BoxFit.contain),
+              ),
+              pw.SizedBox(width: 12),
+            ],
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'ConstructING',
+                  style: pw.TextStyle(
+                    fontSize: 22,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.brown900,
+                  ),
+                ),
+                pw.Text(
+                  'Acta de Conformidad Técnica',
+                  style: const pw.TextStyle(
+                      fontSize: 11, color: PdfColors.grey800),
+                ),
+                pw.Text(
+                  'Emitida el ${_fechaText(fechaDocumento)}',
+                  style: const pw.TextStyle(
+                      fontSize: 9, color: PdfColors.grey600),
+                ),
+              ],
+            ),
+          ],
+        ),
+        pw.SizedBox(height: 8),
+        pw.Divider(thickness: 1, color: PdfColors.brown900),
+      ],
+    );
+  }
+
+  /// Fila etiqueta/valor de los datos de la obra.
+  pw.Widget _dato(String etiqueta, String valor) => pw.Container(
+        margin: const pw.EdgeInsets.only(bottom: 3),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.SizedBox(
+              width: 130,
+              child: pw.Text(
+                '$etiqueta:',
+                style: const pw.TextStyle(
+                    fontSize: 9.5, color: PdfColors.grey700),
+              ),
+            ),
+            pw.Expanded(
+              child: pw.Text(
+                valor,
+                style: const pw.TextStyle(fontSize: 10),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  /// Fotografía del avance con su rótulo simple (sin GPS ni identificadores).
+  pw.Widget _foto(Evidence evidencia, pw.ImageProvider provider) {
+    final nota = evidencia.nota?.trim();
     return pw.Container(
-      margin: const pw.EdgeInsets.only(bottom: 10),
+      width: 250,
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(
-            'Firma de: $firmanteDe',
-            style: const pw.TextStyle(
-                fontSize: 8, color: PdfColors.brown900),
-          ),
-          _datoBiometrico('Trazos', '${metadatos.trazosCount}'),
-          _datoBiometrico('Puntos capturados', '${metadatos.puntosCount}'),
-          _datoBiometrico('Longitud total',
-              '${metadatos.longitudTotalPx.toStringAsFixed(2)} px'),
-          _datoBiometrico('Duración',
-              '${metadatos.duracionMs.toStringAsFixed(0)} ms'),
-          _datoBiometrico('Velocidad media',
-              '${metadatos.velocidadMediaPxS.toStringAsFixed(2)} px/s'),
-          _datoBiometrico('Presión media / máxima',
-              '${metadatos.presionMedia.toStringAsFixed(3)} / '
-              '${metadatos.presionMaxima.toStringAsFixed(3)}'),
-          _datoBiometrico(
-            'Área de captura (x, y)',
-            '(${metadatos.minX.toStringAsFixed(1)}, '
-            '${metadatos.minY.toStringAsFixed(1)}) -> '
-            '(${metadatos.maxX.toStringAsFixed(1)}, '
-            '${metadatos.maxY.toStringAsFixed(1)})',
-          ),
-          if (puntos.isNotEmpty) ...[
-            pw.SizedBox(height: 2),
-            pw.Text(
-              'Muestra de la matriz del trazo (x, y, t ms, presión):',
-              style: const pw.TextStyle(
-                  fontSize: 7, color: PdfColors.grey700),
+          pw.Container(
+            height: 165,
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey400),
             ),
-            for (final p in inicio) _puntoTexto(p),
-            if (cierre.isNotEmpty) ...[
-              if (omitidos > 0)
-                pw.Text(
-                  '  ... $omitidos punto(s) intermedio(s) no desplegados aquí: '
-                  'la matriz completa queda acoplada al registro digital '
-                  'sellado (CU-59).',
-                  style: const pw.TextStyle(
-                      fontSize: 7, color: PdfColors.grey700),
-                ),
-              for (final p in cierre) _puntoTexto(p),
-            ],
-          ],
+            child: pw.Image(provider, fit: pw.BoxFit.cover),
+          ),
+          pw.Text(
+            '${evidencia.tipo.label} · ${_fechaCorta(evidencia.fechaCaptura)}',
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+          ),
+          if (nota != null && nota.isNotEmpty)
+            pw.Text(
+              nota,
+              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+            ),
         ],
       ),
     );
   }
-
-  pw.Widget _datoBiometrico(String etiqueta, String valor) => pw.Text(
-        '$etiqueta: $valor',
-        style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
-      );
-
-  pw.Widget _puntoTexto(SignaturePoint p) => pw.Text(
-        '  (${p.x.toStringAsFixed(1)}, ${p.y.toStringAsFixed(1)}, '
-        '${p.t} ms, ${p.pressure.toStringAsFixed(3)})',
-        style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey800),
-      );
 
   /// Recuadro de una firma manuscrita con su rótulo, nombre completo y fecha
   /// (CU-56/CU-57: "Nombre Apellido" bajo la firma, junto a la fecha).
@@ -388,6 +365,7 @@ class DefaultActaPdfGenerator {
             ),
           ),
         ),
+        pw.SizedBox(height: 3),
         // Línea 1: rol + fecha de firma.
         pw.Text(
           '$titulo · ${_fechaText(fecha)}',
@@ -398,7 +376,7 @@ class DefaultActaPdfGenerator {
           pw.Text(
             nombre,
             style: const pw.TextStyle(
-              fontSize: 9,
+              fontSize: 9.5,
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.brown900,
             ),
@@ -408,7 +386,7 @@ class DefaultActaPdfGenerator {
   }
 
   pw.Widget _seccion(String titulo) => pw.Container(
-        margin: const pw.EdgeInsets.only(bottom: 6, top: 4),
+        margin: const pw.EdgeInsets.only(bottom: 6),
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
@@ -425,46 +403,16 @@ class DefaultActaPdfGenerator {
         ),
       );
 
-  pw.Widget _evidenciaRow(int n, Evidence evidencia) {
-    final fecha = evidencia.fechaCaptura;
-    return pw.Container(
-      margin: const pw.EdgeInsets.only(bottom: 4),
-      child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.SizedBox(width: 16, child: pw.Text('$n.')),
-          pw.Expanded(
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  '${evidencia.tipo.label} · ${_fechaText(fecha)} · '
-                  'GPS ${evidencia.latitud.toStringAsFixed(5)}, '
-                  '${evidencia.longitud.toStringAsFixed(5)} '
-                  '(±${evidencia.precisionMetros.round()} m)'
-                  '${evidencia.fueraDeObra ? " · CAPTURA FUERA DEL PERÍMETRO (CU-35)" : ""}',
-                  style: const pw.TextStyle(fontSize: 9),
-                ),
-                if (evidencia.nota != null &&
-                    evidencia.nota!.trim().isNotEmpty)
-                  pw.Text(
-                    'Nota: ${evidencia.nota}',
-                    style:
-                        const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
+  /// Fecha y hora (DD/MM/AAAA HH:MM).
   String _fechaText(DateTime fecha) =>
-      '${fecha.day.toString().padLeft(2, '0')}/'
-      '${fecha.month.toString().padLeft(2, '0')}/${fecha.year} '
+      '${_fechaCorta(fecha)} '
       '${fecha.hour.toString().padLeft(2, '0')}:'
       '${fecha.minute.toString().padLeft(2, '0')}';
+
+  /// Solo fecha (DD/MM/AAAA).
+  String _fechaCorta(DateTime fecha) =>
+      '${fecha.day.toString().padLeft(2, '0')}/'
+      '${fecha.month.toString().padLeft(2, '0')}/${fecha.year}';
 
   /// Dibuja un conjunto de trazos de firma vectorialmente dentro del
   /// recuadro: normaliza el área capturada (x, y) al espacio disponible

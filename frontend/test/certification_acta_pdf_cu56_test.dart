@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:constructing_mobile/features/certification/data/acta_pdf_generator.dart';
@@ -139,7 +140,16 @@ void _sinGlifosFaltantes(List<String> avisos) {
 }
 
 void main() {
+  // El logo del acta se carga con `rootBundle`: necesita el binding.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('Acta PDF CU-56 — extensión acotada del documento legal', () {
+    test('el logo institucional está empaquetado y disponible para el acta',
+        () async {
+      final data = await rootBundle.load(DefaultActaPdfGenerator.logoAsset);
+      expect(data.lengthInBytes, greaterThan(0));
+    });
+
     test(
         'conformidad COLEGIADA (CU-57) con firmas realistas de cientos de '
         'puntos: el acta se compila sin PdfTooBigPageException', () async {

@@ -228,23 +228,22 @@ void main() {
     });
   });
 
-  group('RF_03 - EvidenceFileValidator (solo JPG/JPEG)', () {
-    test('acepta JPEG y rechaza PNG por CONTENIDO', () {
+  group('RF_03 - EvidenceFileValidator (JPG/JPEG + conversion)', () {
+    test('detecta JPEG vs PNG por CONTENIDO (no por extensión)', () {
       expect(EvidenceFileValidator.esJpeg(_imagen()), isTrue);
-      expect(EvidenceFileValidator.rechazo(_imagen()), isNull);
       expect(EvidenceFileValidator.esJpeg(_png()), isFalse);
-      expect(EvidenceFileValidator.rechazo(_png()),
-          EvidenceFileValidator.notJpegMessage);
     });
 
-    test('un PNG renombrado a .jpg se rechaza igual', () {
+    test('un PNG renombrado a .jpg se detecta igual por su firma', () {
+      expect(EvidenceFileValidator.esJpeg(_png()), isFalse);
+      // Y no se rechaza: se convierte más adelante en el pipeline.
       expect(
         EvidenceFileValidator.rechazo(_png(), path: '/tmp/foto.jpg'),
-        EvidenceFileValidator.notJpegMessage,
+        isNull,
       );
     });
 
-    test('archivo vacío tiene su propio mensaje', () {
+    test('solo el archivo vacío se rechaza de entrada', () {
       expect(EvidenceFileValidator.rechazo(const []),
           EvidenceFileValidator.emptyMessage);
     });
@@ -385,10 +384,9 @@ void main() {
       expect(carga.detalle, contains('origen=galeria'));
     });
 
-    test('una PNG se RECHAZA con mensaje y no crea evidencia ni abre el editor',
+    test('una PNG se CONVIERTE a JPG automáticamente (capturas del celular)',
         () async {
       final ctx = await _contexto('png');
-      var editorAbierto = false;
       final bloc = CaptureFlowBloc(
         captureGateway: _FakeCaptureGateway(bytes: _png()),
         locationGateway: _FakeLocationGateway(),
@@ -399,10 +397,36 @@ void main() {
         obraLongitud: -58.3816,
         auditLog: ctx.auditWriter,
         videoDurationReader: (_) async => null,
-        editImage: (bytes) async {
-          editorAbierto = true;
-          return bytes;
-        },
+        editImage: (bytes) async => bytes,
+      );
+      addTearDown(bloc.close);
+
+      final espera =
+          expectLater(bloc.stream, emitsThrough(isA<CaptureFlowPreview>()));
+      bloc.add(CapturePhotoRequested());
+      await espera;
+
+      // La evidencia que llega a la vista previa ya es JPEG.
+      final draft = (bloc.state as CaptureFlowPreview).draft;
+      expect(EvidenceFileValidator.esJpeg(draft.bytes), isTrue);
+      expect(draft.bytes.length, greaterThan(0));
+    });
+
+    test('un archivo que NO es imagen se rechaza con mensaje', () async {
+      final ctx = await _contexto('basura');
+      final bloc = CaptureFlowBloc(
+        captureGateway: _FakeCaptureGateway(
+          bytes: Uint8List.fromList([1, 2, 3, 4, 5, 6, 7, 8]),
+        ),
+        locationGateway: _FakeLocationGateway(),
+        evidences: ctx.evidences,
+        hito: _hito(),
+        obraId: 'w1',
+        obraLatitud: -34.6037,
+        obraLongitud: -58.3816,
+        auditLog: ctx.auditWriter,
+        videoDurationReader: (_) async => null,
+        editImage: (bytes) async => bytes,
       );
       addTearDown(bloc.close);
 
@@ -412,8 +436,7 @@ void main() {
       await espera;
 
       expect((bloc.state as CaptureFlowFailure).message,
-          EvidenceFileValidator.notJpegMessage);
-      expect(editorAbierto, isFalse);
+          EvidenceFileValidator.notImageMessage);
       expect(await ctx.evidences.listByHito('h1'), isEmpty);
     });
 
