@@ -1,0 +1,32 @@
+# ConstructING - Base de datos local (PostgreSQL 16)
+#
+# Uso:
+#   1. Instalar Docker Desktop (https://www.docker.com/products/docker-desktop/)
+#   2. Levantar la BD:  docker compose up -d
+#   3. Verificar:        docker compose ps
+#   4. Arrancar el backend (crea el esquema solo con synchronize:true):
+#        cd backend; npm run start:dev
+#
+# Las credenciales están alineadas con backend/.env y con los valores por
+# defecto de backend/src/app.module.ts (RNF-D-03: PostgreSQL en desarrollo).
+services:
+  postgres:
+    image: postgres:16
+    container_name: constructing-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: constructingsal
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d constructingsal"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

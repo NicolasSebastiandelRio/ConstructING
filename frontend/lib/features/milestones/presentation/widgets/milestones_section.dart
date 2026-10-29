@@ -1,0 +1,1017 @@
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../../../core/storage/local_database.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../audit/data/audit_log_writer.dart';
+import '../../../audit/data/datasources/audit_log_local_data_source.dart';
+import '../../../certification/data/datasources/acta_remote_data_source.dart';
+import '../../../certification/data/datasources/certification_local_data_source.dart';
+import '../../../certification/domain/conformidad_roles.dart';
+import '../../../certification/gateway/acta_saver.dart';
+import '../../../certification/presentation/bloc/acta_download_cubit.dart';
+import '../../../certification/presentation/bloc/acta_download_state.dart';
+import '../../../certification/presentation/screens/certification_summary_screen.dart';
+import '../../../evidence/data/datasources/evidence_local_data_source.dart';
+import '../../../evidence/presentation/screens/capture_flow_screen.dart';
+import '../../../evidence/presentation/screens/evidence_gallery_screen.dart';
+import '../../data/datasources/estimated_end_writer.dart';
+import '../../data/datasources/milestone_local_data_source.dart';
+import '../../domain/entities/milestone.dart';
+import '../../domain/notify/milestone_owner_notifier.dart';
+import '../../domain/schedule/milestone_schedule.dart';
+import '../blocs/milestones_bloc.dart';
+import '../blocs/milestones_event.dart';
+import '../blocs/milestones_state.dart';
+import 'dependencies_dialog.dart';
+import 'delete_milestone_dialog.dart';
+import 'edit_milestone_modal.dart';
+import 'new_milestone_modal.dart';
+import 'advance_status_dialog.dart';
+
+/// Hoja de Ruta de la obra como roadmap / línea de tiempo secuencial.
+///
+/// La fecha de inicio de la ruta es la fecha de inicio definida al crear el
+/// proyecto ([obraFechaInicio]). Los hitos se ordenan cronológicamente por
+/// inicio temprano (con desempate estable por creación) y se dibujan uno
+/// conectado con el siguiente (riel vertical con nodos), de modo que se
+/// entiende rápidamente la secuencia y el progreso.
+///
+/// Cada hito muestra: nombre, descripción (si existe), duración en días,
+/// rango de fechas y fecha de finalización estimada en formato DD/MM/AAAA.
+/// La duración restante baja con el paso del tiempo
+/// ([MilestoneScheduleView.remainingDays]) y al modificar un hito el bloc
+/// recalcula las fechas dependientes (CU-29) y notifica al propietario.
+class MilestonesSection extends StatelessWidget {
+  final String obraId;
+  final bool isProfesional;
+
+  /// DAO inyectable (tests); en producción se crea sobre la BD local real.
+  final MilestoneLocalDataSource? dataSource;
+
+  /// DAO de evidencias para el gate del CU-50 (RF_05): la ficha lo provee
+  /// compartiendo la BD local; los tests que no lo inyectan dejan el gate
+  /// en fail-closed (sin evidencia registrada no se certifica).
+  final EvidenceLocalDataSource? evidenceDataSource;
+
+  /// CU-54 paso 2: fuente del acta en el servidor central (Cloud Storage).
+  /// Opcional: sin ella la descarga resuelve solo por caché local.
+  final ActaRemoteDataSource? actaRemoteSource;
+
+  /// CU-30: escribe la fecha estimada en la obra (opcional; la ficha real
+  /// lo provee, en tests se omite o se usa un fake).
+  final EstimatedEndWriter? scheduleWriter;
+
+  /// Datos maestros del proyecto para el acta (CU-51/CU-56, opcional).
+  final String? obraNombre;
+
+  /// Inicio de la obra (yyyy-MM-dd) para anclar el roadmap a fechas
+  /// concretas. Si se omite, se muestran días relativos.
+  final String? obraFechaInicio;
+
+  /// Datos del propietario para el aviso "uno de sus hitos fue modificado".
+  /// La ficha técnica los provee desde la obra; en tests se omiten.
+  final String? propietarioEmail;
+  final String? propietarioNombre;
+
+  /// Coordenadas ancla de la obra (CU-15) para el guard de cercanía del
+  /// CU-35. La ficha técnica las provee desde la obra.
+  final double? obraLatitud;
+  final double? obraLongitud;
+
+  /// Notificador inyectable (tests); por defecto traza de consola.
+  final MilestoneOwnerNotifier? ownerNotifier;
+
+  /// CU-60: Servicio de Audit Log (inyectable en tests; producción crea el
+  /// escritor sobre la BD local real).
+  final AuditLogWriter? auditLog;
+
+  /// CU-57 (PT-07): borradores de conformidad pendientes de segunda firma.
+  /// La Hoja de Ruta del Propietario los usa para marcar el hito "esperando
+  /// su firma" y para habilitarle la firma SOLO sobre un borrador existente
+  /// (precondición colegiada). En producción se crea sobre la BD local real.
+  final PendingConformidadDataSource? pendingConformidadDao;
+
+  const MilestonesSection({
+    super.key,
+    required this.obraId,
+    required this.isProfesional,
+    this.dataSource,
+    this.evidenceDataSource,
+    this.actaRemoteSource,
+    this.obraNombre,
+    this.scheduleWriter,
+    this.obraFechaInicio,
+    this.propietarioEmail,
+    this.propietarioNombre,
+    this.obraLatitud,
+    this.obraLongitud,
+    this.ownerNotifier,
+    this.auditLog,
+    this.pendingConformidadDao,
+  });
+
+  /// Ancla de la ruta: acepta ISO (yyyy-MM-dd[THH:mm...]) y el formato
+  /// legible DD/MM/AAAA por robustez. Null si no hay inicio válido.
+  static DateTime? parseObraStart(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final iso = DateTime.tryParse(trimmed);
+    if (iso != null) return DateTime(iso.year, iso.month, iso.day);
+    final parts = trimmed.split('/');
+    if (parts.length == 3) {
+      final d = int.tryParse(parts[0]);
+      final m = int.tryParse(parts[1]);
+      final y = int.tryParse(parts[2]);
+      if (d != null && m != null && y != null) {
+        try {
+          return DateTime(y, m, d);
+        } catch (_) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider<MilestonesBloc>(
+      create: (_) => MilestonesBloc(
+        dataSource: dataSource ??
+            MilestoneLocalDataSource(localDatabase: LocalDatabase()),
+        // CU-50: en producción (sin DAO falso) se abre la BD local real para
+        // validar la evidencia del hito; con DAO inyectado se respeta el
+        // proveedor de los tests (null → fail-closed).
+        evidenceDao: dataSource == null
+            ? (evidenceDataSource ??
+                EvidenceLocalDataSource(localDatabase: LocalDatabase()))
+            : evidenceDataSource,
+        // CU-60: huella imborrable de las transacciones críticas de hitos
+        // (solo producción: los tests inyectan su escritor propio).
+        auditLog: dataSource == null
+            ? (auditLog ??
+                AuditLogWriter(
+                  dataSource: AuditLogLocalDataSource(
+                      localDatabase: LocalDatabase()),
+                ))
+            : auditLog,
+        // CU-57: estado colegiado del hito en la Hoja de Ruta. Con DAO
+        // inyectado se respeta el proveedor de los tests; si no, se abre la
+        // BD local real (producción).
+        pendingConformidadDao: dataSource == null
+            ? (pendingConformidadDao ??
+                PendingConformidadDataSource(localDatabase: LocalDatabase()))
+            : pendingConformidadDao,
+        scheduleWriter: scheduleWriter,
+        ownerNotifier: ownerNotifier,
+      )..add(LoadMilestones(obraId: obraId)),
+      child: Builder(
+        builder: (sectionContext) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'HOJA DE RUTA',
+                  style: TextStyle(
+                    fontFamily: 'Cinzel',
+                    color: AppTheme.accentGold,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (isProfesional)
+                  TextButton.icon(
+                    onPressed: () => _openNewModal(sectionContext),
+                    icon: const Icon(Icons.add,
+                        color: AppTheme.accentGold, size: 18),
+                    label: const Text('Añadir Hito',
+                        style: TextStyle(
+                            color: AppTheme.accentGold, fontSize: 13)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            BlocBuilder<MilestonesBloc, MilestonesState>(
+              builder: (context, state) {
+                if (state is MilestonesLoading) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(20),
+                      child: CircularProgressIndicator(
+                          color: AppTheme.accentGold),
+                    ),
+                  );
+                } else if (state is MilestonesError) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(state.message,
+                            style: const TextStyle(
+                                color: AppTheme.primaryRed),
+                            textAlign: TextAlign.center),
+                        const SizedBox(height: 8),
+                        ElevatedButton.icon(
+                          onPressed: () => context
+                              .read<MilestonesBloc>()
+                              .add(LoadMilestones(obraId: obraId)),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Reintentar'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.accentGold,
+                            foregroundColor: Colors.black,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                } else if (state is MilestonesLoaded) {
+                  if (state.milestones.isEmpty) {                    return Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AppTheme.darkSurface,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'No hay hitos registrados en este proyecto todavía.',
+                          textAlign: TextAlign.center,
+                          style:
+                              TextStyle(color: Colors.white54, fontSize: 13),
+                        ),
+                      ),
+                    );
+                  }
+                  // Roadmap cronológico: ordenados por inicio temprano (con
+                  // desempate estable por creación); sin cronograma, orden
+                  // de creación.
+                  final obraStart = parseObraStart(obraFechaInicio);
+                  final indexed =
+                      state.milestones.asMap().entries.toList();
+                  indexed.sort((a, b) {
+                    final sa = state.schedules[a.value.id]?.earlyStart;
+                    final sb = state.schedules[b.value.id]?.earlyStart;
+                    if (sa == null && sb == null) {
+                      return a.key.compareTo(b.key);
+                    }
+                    if (sa == null) return 1;
+                    if (sb == null) return -1;
+                    final byStart = sa.compareTo(sb);
+                    return byStart != 0 ? byStart : a.key.compareTo(b.key);
+                  });
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _RoadmapHeader(
+                        obraStart: obraStart,
+                        state: state,
+                      ),
+                      const SizedBox(height: 8),
+                      for (var i = 0; i < indexed.length; i++)
+                        _RoadmapStep(
+                          position: i + 1,
+                          total: indexed.length,
+                          isFirst: i == 0,
+                          isLast: i == indexed.length - 1,
+                          child: _MilestoneTile(
+                            milestone: indexed[i].value,
+                            allMilestones: state.milestones,
+                            allEdges: state.edges,
+                            isProfesional: isProfesional,
+                            sequenceLabel:
+                                'HITO ${i + 1} DE ${indexed.length}',
+                            scheduleView: _scheduleViewOf(
+                              state,
+                              indexed[i].value,
+                              obraStart,
+                            ),
+                            onEdit: () => _openEditModal(
+                                context, indexed[i].value),
+                            // CU-50 paso 1: "Iniciar"/"Certificar Etapa" — el
+                            // cierre lo solicita el profesional responsable.
+                            onAdvance: isProfesional &&
+                                    indexed[i].value.estado.next != null
+                                ? () => _openAdvanceDialog(
+                                    context, indexed[i].value)
+                                : null,
+                            // CU-57: el Propietario firma SOLO cuando existe
+                            // el borrador con la primera firma del
+                            // profesional responsable ("esperando su firma").
+                            onFirmarConformidad: !isProfesional &&
+                                    indexed[i].value.estado ==
+                                        MilestoneStatus.enEjecucion &&
+                                    state.pendingFirmantes[
+                                            indexed[i].value.id] ==
+                                        ConformidadRoles.primerFirmante
+                                ? () => _openCertificationSummary(
+                                    context, indexed[i].value)
+                                : null,
+                            pendingPrimerFirmante: state
+                                .pendingFirmantes[indexed[i].value.id],
+                            onDelete: indexed[i].value.estado ==
+                                    MilestoneStatus.pendiente
+                                ? () => _openDeleteDialog(
+                                    context, indexed[i].value)
+                                : null,
+                            onDependencies: () => _openDependenciesDialog(
+                              context,
+                              milestone: indexed[i].value,
+                              allMilestones: state.milestones,
+                              allEdges: state.edges,
+                            ),
+                            onCaptureEvidence: isProfesional
+                                ? () => _openCaptureFlow(
+                                    context, indexed[i].value)
+                                : null,
+                            onViewEvidence: () => _openEvidenceGallery(
+                                context, indexed[i].value),
+                            onDownloadActa: indexed[i].value.estado ==
+                                    MilestoneStatus.certificado
+                                ? () => _downloadActa(
+                                    context, indexed[i].value)
+                                : null,
+                          ),
+                        ),
+                    ],
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Resuelve la vista de cronograma de un hito (fechas + restantes), o
+  /// null si no hay ancla de inicio o aún no hay cálculo.
+  MilestoneScheduleView? _scheduleViewOf(
+    MilestonesLoaded state,
+    Milestone milestone,
+    DateTime? obraStart,
+  ) {
+    final schedule = state.schedules[milestone.id];
+    if (obraStart == null || schedule == null) return null;
+    return MilestoneScheduleView.resolve(
+      obraStart: obraStart,
+      earlyStart: schedule.earlyStart,
+      earlyFinish: schedule.earlyFinish,
+      durationDays: milestone.duracionDias,
+      isCritical: schedule.isCritical,
+    );
+  }
+
+  void _openNewModal(BuildContext context) {    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.darkSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => BlocProvider.value(
+        value: BlocProvider.of<MilestonesBloc>(context),
+        child: NewMilestoneModal(obraId: obraId),
+      ),
+    );
+  }
+
+  /// CU-26/CU-50 paso 1: confirma el avance/cierre. El diálogo recibe los
+  /// datos maestros y el rol del firmante para el acta (CU-51/CU-56).
+  void _openAdvanceDialog(BuildContext context, Milestone milestone) {
+    final bloc = BlocProvider.of<MilestonesBloc>(context);
+    showDialog(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: bloc,
+        child: AdvanceStatusDialog(
+          hito: milestone,
+          obraNombre: obraNombre,
+          propietarioNombre: propietarioNombre,
+          firmante: isProfesional
+              ? ConformidadRoles.profesional
+              : ConformidadRoles.propietario,
+          // CU-57: al volver del flujo de certificación la Hoja de Ruta se
+          // recarga para reflejar el estado colegiado ("esperando la firma
+          // del propietario" tras la primera firma del profesional).
+          onFlowFinished: () => _recargarHojaDeRuta(bloc),
+        ),
+      ),
+    );
+  }
+
+  /// CU-57 etapa 2 (doble firma): el Propietario entra DIRECTO al CU-51 en
+  /// modo segunda firma. Solo se llega aquí cuando existe el borrador de
+  /// conformidad con la firma del profesional responsable: la Hoja de Ruta
+  /// no ofrece la acción en ningún otro caso y el bloc del CU-51 vuelve a
+  /// validar la precondición.
+  Future<void> _openCertificationSummary(
+    BuildContext context,
+    Milestone milestone,
+  ) async {
+    final bloc = BlocProvider.of<MilestonesBloc>(context);
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CertificationSummaryScreen(
+          hitoId: milestone.id,
+          obraNombre: obraNombre,
+          propietarioNombre: propietarioNombre,
+          firmante: ConformidadRoles.propietario,
+          pendingConformidadDao: pendingConformidadDao,
+        ),
+      ),
+    );
+    // Cerrada la conformidad colegiada, el borrador ya no existe: se recarga
+    // la Hoja de Ruta para reflejar el hito certificado.
+    _recargarHojaDeRuta(bloc);
+  }
+
+  /// Recarga la Hoja de Ruta tras volver del flujo de certificación (CU-57).
+  /// No-op si la sección ya se desmontó (el bloc está cerrado).
+  void _recargarHojaDeRuta(MilestonesBloc bloc) {
+    if (!bloc.isClosed) {
+      bloc.add(LoadMilestones(obraId: obraId));
+    }
+  }
+
+  /// CU-27 paso 1: cuadro de advertencia antes de eliminar.
+  void _openDeleteDialog(BuildContext context, Milestone milestone) {
+    showDialog(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: BlocProvider.of<MilestonesBloc>(context),
+        child: DeleteMilestoneDialog(hito: milestone),
+      ),
+    );
+  }
+
+  /// CU-25 paso 1: abre la edición con los datos actuales precargados.
+  /// Lleva los datos del propietario para notificarle la modificación.
+  void _openEditModal(BuildContext context, Milestone milestone) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.darkSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => BlocProvider.value(
+        value: BlocProvider.of<MilestonesBloc>(context),
+        child: EditMilestoneModal(
+          milestone: milestone,
+          propietarioEmail: propietarioEmail,
+          propietarioNombre: propietarioNombre,
+        ),
+      ),
+    );
+  }
+
+  /// CU-24 paso 1: abre el diálogo de predecesores del hito.
+  void _openDependenciesDialog(
+    BuildContext context, {
+    required Milestone milestone,
+    required List<Milestone> allMilestones,
+    required Map<String, Set<String>> allEdges,
+  }) {
+    showDialog(
+      context: context,
+      builder: (_) => BlocProvider.value(
+        value: BlocProvider.of<MilestonesBloc>(context),
+        child: DependenciesDialog(
+          obraId: obraId,
+          hito: milestone,
+          milestones: allMilestones,
+          allEdges: allEdges,
+        ),
+      ),
+    );
+  }
+
+  /// CU-31: abre el entorno de captura aislado para el hito (RF_03).
+  /// Lleva el ancla geográfica de la obra para el guard CU-35.
+  void _openCaptureFlow(BuildContext context, Milestone milestone) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CaptureFlowScreen(
+          hito: milestone,
+          obraId: obraId,
+          obraLatitud: obraLatitud,
+          obraLongitud: obraLongitud,
+        ),
+      ),
+    );
+  }
+
+  /// CU-40: abre la galería de evidencias del hito y su mapa (el mapa se
+  /// referencia al ancla de la obra, CU-15).
+  void _openEvidenceGallery(BuildContext context, Milestone milestone) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EvidenceGalleryScreen(
+          hitoId: milestone.id,
+          hitoNombre: milestone.nombre,
+          obraLatitud: obraLatitud,
+          obraLongitud: obraLongitud,
+        ),
+      ),
+    );
+  }
+
+  /// CU-54 (RF_05): descarga el acta del hito certificado. El resultado
+  /// (copia offline o error) se informa por SnackBar.
+  void _downloadActa(BuildContext context, Milestone milestone) {
+    final messenger = ScaffoldMessenger.of(context);
+    final cubit = ActaDownloadCubit(
+      milestoneDao: dataSource ??
+          MilestoneLocalDataSource(localDatabase: LocalDatabase()),
+      readCachedActa: (hitoId) => readLocalActa(hitoId: hitoId),
+      saveActa: ({required Uint8List bytes, required String fileName}) =>
+          saveActaFile(bytes: bytes, fileName: fileName),
+      remoteActa: actaRemoteSource?.fetchActaPdf,
+    );
+    late final StreamSubscription<ActaDownloadState> sub;
+    sub = cubit.stream.listen((state) {
+      if (state is ActaDownloaded) {
+        sub.cancel();
+        cubit.close();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+                'Acta "${state.fileName}" guardada (${state.origen}): ${state.ubicacion}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (state is ActaDownloadError) {
+        sub.cancel();
+        cubit.close();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(state.message),
+            backgroundColor: AppTheme.primaryRed,
+          ),
+        );
+      }
+    });
+    cubit.download(hitoId: milestone.id);
+  }
+}
+
+/// Cabecera del roadmap: ancla la ruta a la fecha de inicio del proyecto y
+/// resume el fin estimado + el progreso (X de N certificados).
+class _RoadmapHeader extends StatelessWidget {
+  final DateTime? obraStart;
+  final MilestonesLoaded state;
+
+  const _RoadmapHeader({required this.obraStart, required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = state.milestones.length;
+    final done = state.milestones
+        .where((m) => m.estado == MilestoneStatus.certificado)
+        .length;
+    String? endText;
+    final startAnchor = obraStart;
+    if (startAnchor != null && state.schedules.isNotEmpty) {
+      var duration = 0;
+      for (final s in state.schedules.values) {
+        if (s.earlyFinish > duration) duration = s.earlyFinish;
+      }
+      final end = DateTime(startAnchor.year, startAnchor.month, startAnchor.day)
+          .add(Duration(days: duration));
+      endText = MilestoneScheduleView.format(end);
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.darkSurface,
+        borderRadius: BorderRadius.circular(12),
+        border:
+            Border.all(color: AppTheme.accentGold.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.route_outlined,
+                  color: AppTheme.accentGold, size: 16),
+              const SizedBox(width: 6),
+              Text(
+                obraStart != null
+                    ? 'Inicio de ruta: ${MilestoneScheduleView.format(obraStart!)}'
+                    : 'Inicio de ruta: sin fecha de proyecto',
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            endText != null
+                ? 'Fin estimado: $endText · $done de $total certificados'
+                : '$done de $total certificados',
+            style: const TextStyle(color: Colors.white54, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Paso del roadmap: riel vertical con nodo numerado + línea que lo conecta
+/// con el anterior y el siguiente, y la tarjeta del hito a la derecha.
+class _RoadmapStep extends StatelessWidget {
+  final int position;
+  final int total;
+  final bool isFirst;
+  final bool isLast;
+  final Widget child;
+
+  const _RoadmapStep({
+    required this.position,
+    required this.total,
+    required this.isFirst,
+    required this.isLast,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 36,
+            child: Column(
+              children: [
+                // Conector superior (el primero no tiene: inicia la ruta).
+                Container(
+                  width: 2,
+                  height: isFirst ? 12 : 14,
+                  color: isFirst
+                      ? Colors.transparent
+                      : AppTheme.accentGold.withValues(alpha: 0.5),
+                ),
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppTheme.darkSurface,
+                    border: Border.all(
+                      color: AppTheme.accentGold.withValues(alpha: 0.8),
+                      width: 2,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    '$position',
+                    style: const TextStyle(
+                      color: AppTheme.accentGold,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                // Conector inferior (el último no continúa: cierra la ruta).
+                Expanded(
+                  child: Container(
+                    width: 2,
+                    color: isLast
+                        ? Colors.transparent
+                        : AppTheme.accentGold.withValues(alpha: 0.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              // Sin `top`: con IntrinsicHeight el tile ya recibe una altura
+              // exacta y ese padding extra provocaba un desborde de 2 px
+              // (rayas de debug) en pantallas anchas.
+              padding: EdgeInsets.only(
+                bottom: isLast ? 0 : 8,
+              ),
+              child: child,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Fila de un hito en la Hoja de Ruta, con acciones según rol y estado.
+class _MilestoneTile extends StatelessWidget {
+  final Milestone milestone;
+  final List<Milestone> allMilestones;
+  final Map<String, Set<String>> allEdges;
+  final bool isProfesional;
+  final VoidCallback onEdit;
+  final VoidCallback? onAdvance;
+  final VoidCallback? onDelete;
+  final VoidCallback onDependencies;
+  final VoidCallback? onCaptureEvidence;
+  final VoidCallback onViewEvidence;
+  final VoidCallback? onDownloadActa;
+
+  /// CU-57: firma de la segunda conformidad colegiada (solo Propietario con
+  /// borrador pendiente del profesional).
+  final VoidCallback? onFirmarConformidad;
+
+  /// CU-57: rol que ya firmó la primera conformidad y espera la segunda
+  /// (null si el hito no tiene conformidad pendiente).
+  final String? pendingPrimerFirmante;
+
+  /// Etiqueta de secuencia del roadmap ("HITO 1 DE 3").
+  final String? sequenceLabel;
+
+  /// Vista de cronograma del roadmap (fechas + restantes); null si no hay
+  /// ancla o cálculo todavía (se muestra duración relativa).
+  final MilestoneScheduleView? scheduleView;
+
+  const _MilestoneTile({
+    required this.milestone,
+    required this.allMilestones,
+    required this.allEdges,
+    required this.isProfesional,
+    required this.onEdit,
+    required this.onAdvance,
+    required this.onDelete,
+    required this.onDependencies,
+    required this.onViewEvidence,
+    required this.scheduleView,
+    this.onCaptureEvidence,
+    this.onDownloadActa,
+    this.onFirmarConformidad,
+    this.pendingPrimerFirmante,
+    this.sequenceLabel,
+  });
+
+  Color _statusColor(MilestoneStatus estado) {
+    switch (estado) {
+      case MilestoneStatus.certificado:
+        return Colors.greenAccent;
+      case MilestoneStatus.enEjecucion:
+        return AppTheme.lightBlue;
+      case MilestoneStatus.pendiente:
+        return Colors.white54;
+    }
+  }
+
+  IconData _statusIcon(MilestoneStatus estado) {
+    switch (estado) {
+      case MilestoneStatus.certificado:
+        return Icons.check_circle;
+      case MilestoneStatus.enEjecucion:
+        return Icons.play_circle_fill;
+      case MilestoneStatus.pendiente:
+        return Icons.flag_outlined;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final names = {for (final m in allMilestones) m.id: m.nombre};
+    final predecessorNames = (allEdges[milestone.id] ?? {})
+        .map((id) => names[id] ?? '¿?')
+        .toList();
+    final actions = _trailingActions();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+      decoration: BoxDecoration(
+        color: AppTheme.darkSurface,
+        borderRadius: BorderRadius.circular(12),
+        border:
+            Border.all(color: AppTheme.accentGold.withValues(alpha: 0.3)),
+      ),
+      // ListTile reemplazado por layout propio (Sprint 4): el `trailing`
+      // del ListTile desbordaba con 5+ acciones en pantallas angostas
+      // (assert "Trailing widget consumes the entire tile width" → pantalla
+      // negra al abrir la ficha). Los actions van ahora en un Wrap abajo.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(_statusIcon(milestone.estado),
+                  color: _statusColor(milestone.estado)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(milestone.nombre,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14)),
+              ),
+              // CU-29 poscondición: los hitos críticos quedan resaltados.
+              if (milestone.esCritico)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryRed,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'CRÍTICA',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          if (sequenceLabel != null)
+            Text(
+              sequenceLabel!,
+              style: const TextStyle(
+                  color: AppTheme.accentGold, fontSize: 10),
+            ),
+          // CU-57: estado de la conformidad colegiada del hito. Para el
+          // Propietario el hito aparece "esperando su firma"; para el
+          // profesional, esperando la refrenda del propietario.
+          if (pendingPrimerFirmante != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: (isProfesional ? AppTheme.lightBlue : AppTheme.accentGold)
+                      .withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: (isProfesional
+                            ? AppTheme.lightBlue
+                            : AppTheme.accentGold)
+                        .withValues(alpha: 0.7),
+                  ),
+                ),
+                child: Text(
+                  isProfesional
+                      ? 'CONFORMIDAD REGISTRADA · ESPERANDO FIRMA DEL PROPIETARIO'
+                      : 'ESPERANDO SU FIRMA (CU-57)',
+                  style: TextStyle(
+                    color: isProfesional
+                        ? AppTheme.lightBlue
+                        : AppTheme.accentGold,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          if (milestone.descripcion != null &&
+              milestone.descripcion!.trim().isNotEmpty)
+            Text(
+              milestone.descripcion!,
+              style:
+                  const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          Text(
+            '${milestone.duracionDias} días · ${milestone.estado.label}',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          // Roadmap: rango de fechas y días restantes (CU-29 display).
+          // La fecha de fin estimada = inicio del hito + duración, en
+          // formato legible DD/MM/AAAA. Los restantes bajan con el tiempo.
+          if (scheduleView != null) ...[
+            Text(
+              '${MilestoneScheduleView.format(scheduleView!.startDate)} → ${MilestoneScheduleView.format(scheduleView!.endDate)}',
+              style: const TextStyle(
+                  color: AppTheme.lightBlue, fontSize: 12),
+            ),
+            Text(
+              'Fin estimado: ${MilestoneScheduleView.format(scheduleView!.endDate)}',
+              style: const TextStyle(
+                  color: AppTheme.lightBlue, fontSize: 12),
+            ),
+            Text(
+              'Quedan ${scheduleView!.remainingDays} días',
+              style: const TextStyle(
+                  color: Colors.white54, fontSize: 11),
+            ),
+          ],
+          if (predecessorNames.isNotEmpty)
+            Text(
+              'Depende de: ${predecessorNames.join(', ')}',
+              style: const TextStyle(
+                  color: AppTheme.lightBlue, fontSize: 11),
+            ),
+          if (actions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                children: actions,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _trailingActions() {
+    // CU-24 precondición: se necesitan al menos dos hitos para vincular.
+    final canLink = isProfesional &&
+        allMilestones.length >= 2 &&
+        milestone.estado != MilestoneStatus.certificado;
+    final canEdit =
+        isProfesional && milestone.estado == MilestoneStatus.pendiente;
+
+    final actions = <Widget>[
+      // CU-40 paso 1: galería de evidencias + mapa de relevamiento del hito.
+      IconButton(
+        tooltip: 'Ver evidencias y mapa',
+        icon: const Icon(Icons.photo_library_outlined,
+            color: AppTheme.lightBlue),
+        onPressed: onViewEvidence,
+      ),
+    ];
+    // CU-54 paso 1: descargar el acta de conformidad del hito finalizado
+    // (actor Cualquiera, RF_05).
+    if (onDownloadActa != null) {
+      actions.add(IconButton(
+        tooltip: 'Descargar Acta PDF',
+        icon: const Icon(Icons.picture_as_pdf_outlined,
+            color: AppTheme.accentGold),
+        onPressed: onDownloadActa,
+      ));
+    }
+    // CU-31: registrar evidencia in situ (solo Profesional, RF_03).
+    // CU-57: los hitos certificados tienen su evidencia congelada — sin
+    // nuevas capturas.
+    if (isProfesional &&
+        onCaptureEvidence != null &&
+        milestone.estado != MilestoneStatus.certificado) {
+      actions.add(IconButton(
+        tooltip: 'Registrar evidencia',
+        icon: const Icon(Icons.photo_camera_outlined,
+            color: AppTheme.accentGold),
+        onPressed: onCaptureEvidence,
+      ));
+    }
+    if (canLink) {
+      actions.add(IconButton(
+        tooltip: 'Agregar predecesor',
+        icon: const Icon(Icons.link_outlined, color: AppTheme.lightBlue),
+        onPressed: onDependencies,
+      ));
+    }
+    if (canEdit) {
+      actions.add(IconButton(
+        tooltip: 'Editar hito',
+        icon: const Icon(Icons.edit_outlined, color: AppTheme.accentGold),
+        onPressed: onEdit,
+      ));
+    }
+    // CU-26/CU-50 paso 1: Iniciar (pendiente) — solo Profesional; el cierre
+    // formal lo solicita el profesional responsable ("Certificar Etapa").
+    if (onAdvance != null) {
+      final esInicio = milestone.estado == MilestoneStatus.pendiente;
+      actions.add(IconButton(
+        tooltip: esInicio ? 'Iniciar hito' : 'Certificar etapa',
+        icon: Icon(
+          esInicio ? Icons.play_arrow_outlined : Icons.check_circle_outline,
+          color: Colors.greenAccent,
+        ),
+        onPressed: onAdvance,
+      ));
+    }
+    // CU-57 (doble firma colegiada): el Propietario SOLO puede firmar cuando
+    // el profesional responsable ya registró la primera conformidad (borrador
+    // pendiente). Sin ese borrador la Hoja de Ruta NO le ofrece la firma: no
+    // puede forzar la certificación.
+    if (onFirmarConformidad != null) {
+      actions.add(IconButton(
+        tooltip: 'Firmar conformidad (Propietario)',
+        icon: const Icon(Icons.draw_outlined, color: Colors.greenAccent),
+        onPressed: onFirmarConformidad,
+      ));
+    }
+    // CU-27 paso 1: solo hitos Pendiente (sin progreso).
+    if (isProfesional && onDelete != null) {
+      actions.add(IconButton(
+        tooltip: 'Eliminar hito',
+        icon: const Icon(Icons.delete_outline, color: AppTheme.primaryRed),
+        onPressed: onDelete,
+      ));
+    }
+    return actions;
+  }
+}
+

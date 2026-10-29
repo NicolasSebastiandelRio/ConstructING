@@ -1,0 +1,302 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'package:constructing_mobile/core/storage/local_database.dart';
+import 'package:constructing_mobile/features/audit/data/audit_log_writer.dart';
+import 'package:constructing_mobile/features/audit/data/datasources/audit_log_local_data_source.dart';
+import 'package:constructing_mobile/features/evidence/data/datasources/evidence_local_data_source.dart';
+import 'package:constructing_mobile/features/evidence/domain/entities/evidence.dart';
+import 'package:constructing_mobile/features/milestones/data/datasources/milestone_local_data_source.dart';
+import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
+
+int _dbCounter = 0;
+
+/// DAO sobre BD temporal aislada (ffi) para tests planos.
+///
+/// NOTA: cada test usa un archivo temporal único (se borra al fin) porque los
+/// opens `:memory:` comparten instancia (caché singleInstance) y contaminan
+/// entre tests. Se usa `databaseFactoryFfiNoIsolate`: el factory con isolate
+/// worker deja recursos que cuelgan la finalización del test.
+Future<MilestoneLocalDataSource> openTestDao(String prefix) async {
+  sqfliteFfiInit();
+  final localDb = LocalDatabase();
+  final path =
+      '${Directory.systemTemp.path}/${prefix}_${_dbCounter++}_${DateTime.now().microsecondsSinceEpoch}.db';
+  await localDb.openLocalDatabase(
+    factoryOverride: databaseFactoryFfiNoIsolate,
+    nameOverride: path,
+  );
+  addTearDown(() async {
+    await localDb.close();
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+  });
+  return MilestoneLocalDataSource(localDatabase: localDb);
+}
+
+/// DAO de evidencias sobre BD temporal aislada (ffi) para tests planos.
+Future<EvidenceLocalDataSource> openEvidenceDao(String prefix) async {
+  sqfliteFfiInit();
+  final localDb = LocalDatabase();
+  final path =
+      '${Directory.systemTemp.path}/ev_${prefix}_${_dbCounter++}_${DateTime.now().microsecondsSinceEpoch}.db';
+  await localDb.openLocalDatabase(
+    factoryOverride: databaseFactoryFfiNoIsolate,
+    nameOverride: path,
+  );
+  addTearDown(() async {
+    await localDb.close();
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+  });
+  return EvidenceLocalDataSource(localDatabase: localDb);
+}
+
+/// CU-50+: DAOs de hitos + evidencias sobre UNA MISMA BD temporal (la
+/// validación del cierre consulta la tabla evidences del mismo archivo).
+/// Expone la [LocalDatabase] para sumar DAOs adicionales (ej.: tabla de
+/// certificaciones, CU-59) sobre el mismo archivo.
+Future<({
+  LocalDatabase db,
+  MilestoneLocalDataSource milestones,
+  EvidenceLocalDataSource evidences,
+})> openSharedTestDaos(String prefix) async {
+  sqfliteFfiInit();
+  final localDb = LocalDatabase();
+  final path =
+      '${Directory.systemTemp.path}/sh_${prefix}_${_dbCounter++}_${DateTime.now().microsecondsSinceEpoch}.db';
+  await localDb.openLocalDatabase(
+    factoryOverride: databaseFactoryFfiNoIsolate,
+    nameOverride: path,
+  );
+  addTearDown(() async {
+    await localDb.close();
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+  });
+  return (
+    db: localDb,
+    milestones: MilestoneLocalDataSource(localDatabase: localDb),
+    evidences: EvidenceLocalDataSource(localDatabase: localDb),
+  );
+}
+
+/// CU-60: escritor de Audit Log sobre BD temporal aislada (ffi).
+///
+/// `auditLog` es obligatorio en los blocs (la huella no es omitible); los
+/// tests instancian este escritor de baja fricción sobre la BD local.
+Future<AuditLogWriter> openTestAuditLogWriter(String prefix) async {
+  sqfliteFfiInit();
+  final localDb = LocalDatabase();
+  final path =
+      '${Directory.systemTemp.path}/au_${prefix}_${_dbCounter++}_${DateTime.now().microsecondsSinceEpoch}.db';
+  await localDb.openLocalDatabase(
+    factoryOverride: databaseFactoryFfiNoIsolate,
+    nameOverride: path,
+  );
+  addTearDown(() async {
+    await localDb.close();
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+  });
+  return AuditLogWriter(
+    dataSource: AuditLogLocalDataSource(localDatabase: localDb),
+    userIdReader: () async => 'test-user',
+  );
+}
+
+/// CU-50: carga una evidencia de prueba (foto válida mínima) para un hito.
+/// Con [sincronizada] simula el CU-44 hecho (caché liberado, registro en BD).
+Future<Evidence> seedEvidence(
+  EvidenceLocalDataSource dao, {
+  required String hitoId,
+  required String obraId,
+  bool sincronizada = false,
+}) async {
+  final evidence = await dao.create(
+    hitoId: hitoId,
+    obraId: obraId,
+    tipo: EvidenceType.foto,
+    archivo: sincronizada ? '' : 'cache/foto.jpg',
+    latitud: -34.6,
+    longitud: -58.4,
+    precisionMetros: 5,
+    fechaCaptura: DateTime(2026, 9, 1, 10),
+    tamanoBytes: 1024,
+    checksum: 'checksum-$hitoId',
+    marcaTexto: 'ConstructING',
+  );
+  if (sincronizada) {
+    await dao.markSynced(evidence.id);
+  }
+  return evidence;
+}
+
+/// DAO fake en memoria para widget tests (sin FFI: abrir BD real dentro de
+/// testWidgets cuelga la finalización en este entorno).
+class FakeMilestoneDao implements MilestoneLocalDataSource {
+  final Map<String, Milestone> _store = {};
+  final Map<String, Set<String>> _deps = {};
+  int createCalls = 0;
+  int updateCalls = 0;
+
+  void seed(List<Milestone> milestones) {
+    for (final milestone in milestones) {
+      _store[milestone.id] = milestone;
+    }
+  }
+
+  void seedEdges(Map<String, Set<String>> edges) {
+    for (final entry in edges.entries) {
+      _deps[entry.key] = Set.of(entry.value);
+    }
+  }
+
+  @override
+  Future<Milestone> create({
+    required String obraId,
+    required String nombre,
+    String? descripcion,
+    required int duracionDias,
+  }) async {
+    createCalls++;
+    if (nombre.trim().isEmpty) {
+      throw const CacheStorageException('El nombre del hito es obligatorio.');
+    }
+    if (duracionDias < 0) {
+      throw const CacheStorageException(
+          'La duración debe ser un número mayor o igual a 0.');
+    }
+    final milestone = Milestone(
+      id: 'fake-${_store.length + 1}',
+      obraId: obraId,
+      nombre: nombre.trim(),
+      descripcion: descripcion,
+      duracionDias: duracionDias,
+    );
+    _store[milestone.id] = milestone;
+    return milestone;
+  }
+
+  @override
+  Future<List<Milestone>> listByObra(String obraId) async =>
+      _store.values.where((m) => m.obraId == obraId).toList();
+
+  @override
+  Future<Milestone?> getById(String id) async => _store[id];
+
+  @override
+  Future<Milestone> update(Milestone milestone) async {
+    updateCalls++;
+    _store[milestone.id] = milestone;
+    return milestone;
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    _store.remove(id);
+    _deps.remove(id);
+    for (final entry in _deps.values) {
+      entry.remove(id);
+    }
+  }
+
+  @override
+  Future<void> addDependency({
+    required String hitoId,
+    required String predecesorId,
+  }) async {
+    if (hitoId == predecesorId) {
+      throw const CacheStorageException('Un hito no puede depender de sí mismo.');
+    }
+    _deps.putIfAbsent(hitoId, () => <String>{}).add(predecesorId);
+  }
+
+  @override
+  Future<void> removeDependency({
+    required String hitoId,
+    required String predecesorId,
+  }) async {
+    _deps[hitoId]?.remove(predecesorId);
+  }
+
+  @override
+  Future<List<String>> predecessorIds(String hitoId) async =>
+      _deps[hitoId]?.toList() ?? [];
+
+  @override
+  Future<List<String>> successorIds(String predecesorId) async => _deps.entries
+      .where((entry) => entry.value.contains(predecesorId))
+      .map((entry) => entry.key)
+      .toList();
+
+  @override
+  Future<void> setCritical({
+    required String obraId,
+    required Set<String> criticalIds,
+  }) async {
+    for (final milestone in _store.values.where((m) => m.obraId == obraId)) {
+      _store[milestone.id] =
+          milestone.copyWith(esCritico: criticalIds.contains(milestone.id));
+    }
+  }
+
+  @override
+  Future<List<Milestone>> listPendingSync() async =>
+      _store.values.where((m) => !m.esSincronizado).toList();
+
+  @override
+  Future<void> markSynced(String id) async {
+    final current = _store[id];
+    if (current != null) {
+      _store[id] = current.copyWith(esSincronizado: true);
+    }
+  }
+
+  @override
+  Future<void> applyServerVerdict({
+    required String id,
+    required String estado,
+  }) async {
+    final current = _store[id];
+    if (current != null) {
+      _store[id] = current.copyWith(
+        estado: MilestoneStatus.fromLabel(estado),
+      );
+    }
+  }
+
+  @override
+  Future<Milestone> freeze(String hitoId) async {
+    final current = _store[hitoId];
+    if (current == null) {
+      throw const CacheStorageException(
+          'El hito ya no existe en la Hoja de Ruta.');
+    }
+    if (current.estado == MilestoneStatus.certificado) {
+      throw const CacheStorageException('El hito ya está certificado.');
+    }
+    if (current.estado != MilestoneStatus.enEjecucion) {
+      throw const CacheStorageException(
+          'Solo se congela un hito en estado "En Ejecución".');
+    }
+    final frozen = current.copyWith(
+      estado: MilestoneStatus.certificado,
+      esSincronizado: false,
+    );
+    _store[hitoId] = frozen;
+    return frozen;
+  }
+
+  @override
+  Future<String?> updatedAtOf(String id) async =>
+      _store[id] != null ? DateTime.now().toIso8601String() : null;
+
+  @override
+  Future<Map<String, Set<String>>> dependencyMap(String obraId) async {
+    final ids = _store.values.where((m) => m.obraId == obraId).map((m) => m.id).toSet();
+    return {for (final id in ids) id: Set.of(_deps[id] ?? {})};
+  }
+}
