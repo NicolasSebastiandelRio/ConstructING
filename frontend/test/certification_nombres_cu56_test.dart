@@ -39,6 +39,7 @@ class _Ctx {
   final EvidenceLocalDataSource evidences;
   final CertificationLocalDataSource certifications;
   final PendingConformidadDataSource pendientes;
+  final AuditLogLocalDataSource auditDao;
   final AuditLogWriter auditWriter;
 
   const _Ctx({
@@ -46,6 +47,7 @@ class _Ctx {
     required this.evidences,
     required this.certifications,
     required this.pendientes,
+    required this.auditDao,
     required this.auditWriter,
   });
 
@@ -91,6 +93,7 @@ Future<_Ctx> _contexto(String nombre) async {
     evidences: EvidenceLocalDataSource(localDatabase: localDb),
     certifications: CertificationLocalDataSource(localDatabase: localDb),
     pendientes: PendingConformidadDataSource(localDatabase: localDb),
+    auditDao: auditDao,
     auditWriter: AuditLogWriter(
       dataSource: auditDao,
       userIdReader: () async => 'test-user',
@@ -160,6 +163,14 @@ void main() {
       // El nombre sobrevive entre sesiones junto al borrador de conformidad.
       final borrador = await ctx.pendientes.findPending(hito.id);
       expect(borrador!.primerFirmanteNombre, 'Ing. Ana Pérez');
+
+      // CU-60: la PRIMERA firma queda auditada en el momento en que se
+      // registra (antes no aparecía hasta que el acta se sellaba).
+      final huellasFirma = await ctx.auditDao.listByObra('w1');
+      final firma = huellasFirma
+          .firstWhere((h) => h.accion == 'conformidad_firmada');
+      expect(firma.detalle, contains('rol=Profesional'));
+      expect(firma.detalle, contains('Ing. Ana Pérez'));
 
       // Etapa 2 — Propietario (otra sesión) cierra el acta.
       final blocOwner = ctx.sesion(

@@ -13,6 +13,8 @@ import 'features/auth/data/datasources/auth_remote_data_source.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_state.dart';
 import 'features/auth/presentation/screens/welcome_screen.dart';
+import 'features/audit/data/audit_log_writer.dart';
+import 'features/audit/data/datasources/audit_log_local_data_source.dart';
 import 'features/evidence/data/datasources/evidence_local_data_source.dart';
 import 'features/evidence/domain/crypto/secure_erase.dart';
 import 'features/evidence/gateway/capture_gateway.dart';
@@ -107,6 +109,11 @@ void main() {
         BlocProvider<WorksBloc>(
           create: (context) => WorksBloc(
             worksRemoteDataSource: worksRemoteDataSource,
+            // CU-60: huella de alta/edición/estado/archivado de la obra.
+            auditLog: AuditLogWriter(
+              dataSource: AuditLogLocalDataSource(
+                  localDatabase: localDatabase),
+            ),
           ),
         ),
         // Estado global de conectividad Online/Offline (CU-43, PT-06).

@@ -357,6 +357,17 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
         primerFecha: conformidad,
         createdAt: DateTime.now(),
       ));
+      // CU-60: huella de la PRIMERA firma (CU-52). Sin este registro la
+      // conformidad del profesional no aparecía en el reporte de auditoría
+      // hasta que la otra parte cerraba el acta.
+      await auditLog.log(
+        accion: 'conformidad_firmada',
+        detalle: 'rol=$firmante '
+            'nombre=${nombreFirmante?.trim().isNotEmpty == true ? nombreFirmante!.trim() : "(sin nombre)"} '
+            'hito=${current.hito.nombre} estado=esperando segunda firma',
+        obraId: current.hito.obraId,
+        coordenadas: null,
+      );
       // CU-68 (RF_10): el Módulo de Certificación solicita alertar al
       // Propietario de que el acta está LISTA PARA FIRMAR (paso 1). Se emite
       // cuando la conformidad del profesional ya está registrada —es decir,

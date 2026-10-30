@@ -180,6 +180,13 @@ class MilestonesBloc extends Bloc<MilestonesEvent, MilestonesState> {
               hitoId: event.hitoId, predecesorId: remove);
         }
         final cpm = await _recalculateCriticalPath(event.obraId);
+        // CU-60: huella del cambio de dependencias del hito (CU-24).
+        await auditLog?.log(
+          accion: 'dependencias_actualizadas',
+          detalle: 'hito=${event.hitoId} '
+              'predecesores=[${next.join(', ')}]',
+          obraId: event.obraId,
+        );
         emit(await _loaded(event.obraId, cpm.schedules));
       } catch (e) {
         emit(MilestonesError(message: _message(e)));

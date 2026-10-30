@@ -160,7 +160,7 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
                           actor: state.actorDe(registro),
                           instante: _instante(registro.createdAt),
                           ubicacion: _ubicacion(registro.coordenadas),
-                          accion: registro.accion,
+                          accion: accionLegible(registro.accion),
                           detalle: registro.detalle,
                         );
                       },
@@ -217,6 +217,50 @@ class _ReportHeader extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// CU-63/RNF_U_03: nombre legible de cada acción auditada (CU-60).
+///
+/// Los códigos internos (`hito_creado`, `acta_sellada`, …) no le dicen nada
+/// al usuario; el reporte muestra la acción en lenguaje natural y, si
+/// aparece un código nuevo sin traducir, lo humaniza en vez de ocultarlo.
+String accionLegible(String accion) {
+  switch (accion) {
+    case 'hito_creado':
+      return 'Hito creado';
+    case 'hito_modificado':
+      return 'Hito modificado';
+    case 'hito_iniciado':
+      return 'Hito iniciado';
+    case 'hito_certificado':
+      return 'Hito certificado';
+    case 'hito_eliminado':
+      return 'Hito eliminado';
+    case 'dependencias_actualizadas':
+      return 'Dependencias actualizadas';
+    case 'certificacion_solicitada':
+      return 'Certificación solicitada';
+    case 'conformidad_firmada':
+      return 'Firma registrada';
+    case 'acta_sellada':
+      return 'Acta firmada y sellada';
+    case 'evidencia_cargada':
+      return 'Evidencia cargada';
+    case 'obra_creada':
+      return 'Obra creada';
+    case 'obra_modificada':
+      return 'Obra modificada';
+    case 'obra_estado_actualizado':
+      return 'Estado de la obra actualizado';
+    case 'obra_archivada':
+      return 'Obra archivada';
+    default:
+      // Código desconocido: se humaniza (guion bajo -> espacio, inicial
+      // mayúscula) en lugar de esconder la traza.
+      final texto = accion.replaceAll('_', ' ').trim();
+      if (texto.isEmpty) return 'Acción registrada';
+      return texto[0].toUpperCase() + texto.substring(1);
   }
 }
 

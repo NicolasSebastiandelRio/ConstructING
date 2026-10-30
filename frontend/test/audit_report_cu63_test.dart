@@ -171,7 +171,9 @@ void main() {
       expect(find.text('Ing. Ana Pérez'), findsOneWidget);
       expect(find.text('01/10/2026 08:05:09'), findsOneWidget);
       expect(find.text('-34.60368,-58.38156'), findsOneWidget);
-      expect(find.text('hito_modificado'), findsOneWidget);
+      // RNF_U_03: la acción se muestra en lenguaje natural, no como código.
+      expect(find.text('Hito modificado'), findsOneWidget);
+      expect(find.text('hito_modificado'), findsNothing);
       expect(find.text('nombre=Fundaciones duracion=7'), findsOneWidget);
     });
 
