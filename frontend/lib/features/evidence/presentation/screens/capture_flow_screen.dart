@@ -14,6 +14,8 @@ import '../../domain/entities/evidence.dart';
 import '../../gateway/capture_gateway.dart';
 import '../../gateway/location_gateway.dart';
 import '../../gateway/video_controller_platform.dart';
+import '../../../notifications/data/notification_dispatcher.dart';
+import '../../../notifications/data/notification_dispatcher_factory.dart';
 import '../bloc/capture_flow_bloc.dart';
 import '../widgets/evidence_mismatch_banner.dart';
 import 'evidence_editor_screen.dart';
@@ -43,6 +45,14 @@ class CaptureFlowScreen extends StatefulWidget {
   /// CU-60: Servicio de Audit Log (inyectable en tests).
   final AuditLogWriter? auditLog;
 
+  /// CU-67 (RF_10): dueño de la obra y nombre de la obra para la alerta de
+  /// "Actualización de Obra" que recibe el Propietario al subir una evidencia.
+  final String? propietarioId;
+  final String? obraNombre;
+
+  /// Motor de alertas (inyectable en tests; producción lo construye acá).
+  final NotificationDispatcher? notificationDispatcher;
+
   const CaptureFlowScreen({
     super.key,
     required this.hito,
@@ -53,6 +63,9 @@ class CaptureFlowScreen extends StatefulWidget {
     this.captureGateway,
     this.locationGateway,
     this.auditLog,
+    this.propietarioId,
+    this.obraNombre,
+    this.notificationDispatcher,
   });
 
   @override
@@ -104,6 +117,17 @@ class _CaptureFlowScreenState extends State<CaptureFlowScreen> {
         pickFromGallery: widget.captureGateway == null
             ? const LiveCaptureGateway().pickPhotoFromGallery
             : null,
+        // CU-67 (RF_10): alerta de "Actualización de Obra" al Propietario
+        // cuando se sube una evidencia. Antes el despachador nunca se
+        // inyectaba y la campana del propietario quedaba siempre vacía.
+        notificationDispatcher: widget.notificationDispatcher ??
+            (widget.captureGateway == null
+                ? buildNotificationDispatcher()
+                : null),
+        propietarioDeObra: widget.propietarioId == null
+            ? null
+            : (_) async => widget.propietarioId,
+        obraNombre: widget.obraNombre,
         // CU-60: huella imborrable de la carga de evidencia (solo producción;
         // los tests inyectan su escritor propio).
         auditLog: widget.auditLog ??

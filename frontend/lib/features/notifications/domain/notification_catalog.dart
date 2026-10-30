@@ -55,6 +55,32 @@ abstract final class NotificationCatalog {
         createdAt: ahora ?? DateTime.now(),
       );
 
+  /// El Propietario firmó el acta: el Profesional responsable recibe la
+  /// confirmación (contraparte de [solicitudDeFirma]). Sin esta alerta el
+  /// profesional no tenía NINGUNA notificación en la campana.
+  static AppNotification conformidadDelPropietario({
+    required String id,
+    required String profesionalId,
+    required String obraId,
+    required String obraNombre,
+    required String hitoNombre,
+    String? hitoId,
+    DateTime? ahora,
+  }) =>
+      AppNotification(
+        id: id,
+        usuarioId: profesionalId,
+        tipo: NotificationTipo.firma,
+        titulo: 'El propietario firmó el acta',
+        mensaje: 'La conformidad del hito "$hitoNombre" de la obra '
+            '"$obraNombre" ya tiene la firma del propietario. El acta quedó '
+            'sellada y la etapa se considera certificada.',
+        obraId: obraId,
+        hitoId: hitoId,
+        prioridad: NotificationPrioridad.alta,
+        createdAt: ahora ?? DateTime.now(),
+      );
+
   /// CU-69: desvío temporal de un hito de ruta crítica vencido.
   static AppNotification retrasoDeHitoCritico({
     required String id,

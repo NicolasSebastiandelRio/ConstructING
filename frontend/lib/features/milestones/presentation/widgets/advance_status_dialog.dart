@@ -23,6 +23,10 @@ class AdvanceStatusDialog extends StatefulWidget {
   final String? propietarioNombre;
   final String? firmante;
 
+  /// CU-67/CU-68: dueño y profesional de la obra para el motor de alertas.
+  final String? propietarioId;
+  final String? profesionalId;
+
   /// CU-57: se invoca cuando el flujo de certificación abierto desde este
   /// diálogo se cierra (para recargar la Hoja de Ruta con el estado
   /// colegiado vigente).
@@ -34,6 +38,8 @@ class AdvanceStatusDialog extends StatefulWidget {
     this.obraNombre,
     this.propietarioNombre,
     this.firmante,
+    this.propietarioId,
+    this.profesionalId,
     this.onFlowFinished,
   });
 
@@ -82,6 +88,8 @@ class _AdvanceStatusDialogState extends State<AdvanceStatusDialog> {
                     obraNombre: widget.obraNombre,
                     propietarioNombre: widget.propietarioNombre,
                     firmante: widget.firmante,
+                    propietarioId: widget.propietarioId,
+                    profesionalId: widget.profesionalId,
                   ),
                 ),
               )

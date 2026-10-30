@@ -66,6 +66,25 @@ class NotificationDispatcher {
         ahora: _clock(),
       ));
 
+  /// Notifica al Profesional responsable que el Propietario firmó el acta
+  /// (contraparte de [notifySolicitudDeFirma]).
+  Future<AppNotification> notifyConformidadDelPropietario({
+    required String profesionalId,
+    required String obraId,
+    required String obraNombre,
+    required String hitoNombre,
+    String? hitoId,
+  }) =>
+      _dispatch(NotificationCatalog.conformidadDelPropietario(
+        id: _uuid.v4(),
+        profesionalId: profesionalId,
+        obraId: obraId,
+        obraNombre: obraNombre,
+        hitoNombre: hitoNombre,
+        hitoId: hitoId,
+        ahora: _clock(),
+      ));
+
   /// Persiste la alerta en la bandeja local y, si hay red, la despacha al
   /// servidor (CU-67 paso 4). El canal de correo lo decide el servidor según
   /// la preferencia del usuario (CU-71 paso 4).

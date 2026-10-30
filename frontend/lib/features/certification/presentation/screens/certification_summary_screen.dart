@@ -13,6 +13,8 @@ import '../../../evidence/data/datasources/evidence_local_data_source.dart';
 import '../../../evidence/domain/entities/evidence.dart';
 import '../../../milestones/data/datasources/milestone_local_data_source.dart';
 import '../../../milestones/domain/entities/milestone.dart';
+import '../../../notifications/data/notification_dispatcher.dart';
+import '../../../notifications/data/notification_dispatcher_factory.dart';
 import '../../data/datasources/certification_local_data_source.dart';
 import '../../domain/acta_payload.dart';
 import '../../gateway/acta_saver.dart';
@@ -71,6 +73,14 @@ class CertificationSummaryScreen extends StatefulWidget {
   /// del usuario autenticado (`AuthBloc`). Null = sin nombre disponible.
   final String? nombreFirmante;
 
+  /// CU-67/CU-68 (RF_10): dueño y profesional de la obra, para el motor de
+  /// alertas. Sin ellos la campana de ambos roles quedaba vacía.
+  final String? propietarioId;
+  final String? profesionalId;
+
+  /// Motor de alertas (inyectable en tests; producción lo construye acá).
+  final NotificationDispatcher? notificationDispatcher;
+
   const CertificationSummaryScreen({
     super.key,
     required this.hitoId,
@@ -85,6 +95,9 @@ class CertificationSummaryScreen extends StatefulWidget {
     this.certificationDao,
     this.pendingConformidadDao,
     this.auditLog,
+    this.propietarioId,
+    this.profesionalId,
+    this.notificationDispatcher,
   });
 
   @override
@@ -134,6 +147,15 @@ class _CertificationSummaryScreenState
             dataSource:
                 AuditLogLocalDataSource(localDatabase: LocalDatabase()),
           ),
+      // CU-67/CU-68 (RF_10): motor de alertas. CU-68 avisa al Propietario que
+      // el acta espera su firma y CU-67 confirma al Profesional cuando el
+      // Propietario firma. Antes nunca se inyectaba: campana siempre vacía.
+      notificationDispatcher: widget.notificationDispatcher ??
+          (widget.milestoneDao == null ? buildNotificationDispatcher() : null),
+      propietarioDeObra: widget.propietarioId == null
+          ? null
+          : (_) async => widget.propietarioId,
+      profesionalId: widget.profesionalId,
     )..add(LoadCertificationSummary(hitoId: widget.hitoId));
   }
 

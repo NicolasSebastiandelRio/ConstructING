@@ -88,6 +88,11 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
   /// tests; en producción lo provee el módulo de obras.
   final Future<String?> Function(String obraId)? propietarioDeObra;
 
+  /// CU-67 (RF_10): `ID del Profesional responsable` de la obra. Se usa para
+  /// avisarle cuando el Propietario firma (sin esto el profesional no tenía
+  /// ninguna notificación en la campana).
+  final String? profesionalId;
+
   CertificationBloc({
     required this.milestoneDao,
     required this.evidenceDao,
@@ -103,6 +108,7 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
     this.nombreFirmante,
     this.notificationDispatcher,
     this.propietarioDeObra,
+    this.profesionalId,
   })  : actaGenerator = actaGenerator ??
             DefaultActaPdfGenerator(
               readImageBytes: const LiveCaptureGateway().readBytes,
@@ -548,6 +554,9 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
       // CU-67 (RF_10): el cierre del hito emite la señal de "Actualización de
       // Obra" al Propietario (paso 1), con enlace directo a la obra.
       await _notificarCierreDeHito(hitoCongelado);
+      // CU-67: contraparte — el Profesional recibe la confirmación de que el
+      // Propietario firmó (sin esto el profesional no tenía NINGUNA alerta).
+      await _notificarConformidadDelPropietario(hitoCongelado);
       emit(CertificationSignatureCaptured(
         conformidadAt: payload.fechaConformidad,
         hito: hitoCongelado,
@@ -590,8 +599,7 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
 
   /// CU-67 (RF_10): cierre del hito → señal de "Actualización de Obra" al
   /// Propietario, con enlace directo a la obra (paso 4).
-  Future<void> _notificarCierreDeHito(Milestone hito) async {
-    final dispatcher = notificationDispatcher;
+  Future<void> _notificarCierreDeHito(Milestone hito) async {    final dispatcher = notificationDispatcher;
     final resolver = propietarioDeObra;
     if (dispatcher == null || resolver == null) return;
     try {
@@ -607,6 +615,28 @@ class CertificationBloc extends Bloc<CertificationEvent, CertificationState> {
       );
     } catch (e) {
       debugPrint('CU-67: alerta de cierre pendiente (hito ${hito.id}): $e');
+    }
+  }
+
+  /// CU-67 (RF_10): el Propietario firmó → se avisa al Profesional
+  /// responsable. Best-effort: nunca altera el sellado del acta.
+  Future<void> _notificarConformidadDelPropietario(Milestone hito) async {
+    final dispatcher = notificationDispatcher;
+    final profesional = profesionalId?.trim();
+    if (dispatcher == null || profesional == null || profesional.isEmpty) {
+      return;
+    }
+    if (firmante != ConformidadRoles.propietario) return;
+    try {
+      await dispatcher.notifyConformidadDelPropietario(
+        profesionalId: profesional,
+        obraId: hito.obraId,
+        obraNombre: obraNombre ?? hito.obraId,
+        hitoNombre: hito.nombre,
+        hitoId: hito.id,
+      );
+    } catch (e) {
+      debugPrint('CU-67: alerta al profesional pendiente (hito ${hito.id}): $e');
     }
   }
 }

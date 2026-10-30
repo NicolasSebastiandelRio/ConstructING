@@ -19,6 +19,7 @@ import 'package:constructing_mobile/features/milestones/data/datasources/milesto
 import 'package:constructing_mobile/features/milestones/domain/entities/milestone.dart';
 import 'package:constructing_mobile/features/notifications/data/datasources/notification_local_data_source.dart';
 import 'package:constructing_mobile/features/notifications/data/notification_dispatcher.dart';
+import 'package:constructing_mobile/features/notifications/data/notification_dispatcher_factory.dart';
 import 'package:constructing_mobile/features/notifications/domain/entities/app_notification.dart';
 
 List<SignaturePoint> _trazo({double length = 250, int t0 = 1000}) => [
@@ -55,6 +56,7 @@ class _Ctx {
   CertificationBloc sesion({
     required String firmante,
     required NotificationDispatcher dispatcher,
+    String? profesionalId,
   }) =>
       CertificationBloc(
         milestoneDao: milestones,
@@ -67,6 +69,7 @@ class _Ctx {
         obraNombre: 'Torre Aurora',
         actaGenerator: _SpyGenerator().generate,
         notificationDispatcher: dispatcher,
+        profesionalId: profesionalId,
         propietarioDeObra: (obraId) async =>
             obraId == 'w1' ? 'owner-1' : null,
       );
@@ -148,6 +151,7 @@ void main() {
       final blocOwner = ctx.sesion(
         firmante: ConformidadRoles.propietario,
         dispatcher: dispatcher,
+        profesionalId: 'prof-1',
       );
       addTearDown(blocOwner.close);
       blocOwner.add(LoadCertificationSummary(hitoId: hito.id));
@@ -170,6 +174,32 @@ void main() {
       // El hito quedó efectivamente congelado (CU-57).
       expect((await ctx.milestones.getById(hito.id))!.estado,
           MilestoneStatus.certificado);
+
+      // CU-67 contraparte: el PROFESIONAL también recibe su alerta. Antes de
+      // este cambio la campana del profesional quedaba siempre vacía.
+      final bandejaProfesional =
+          await ctx.notifications.listByUsuario('prof-1');
+      expect(bandejaProfesional, hasLength(1));
+      expect(bandejaProfesional.single.titulo,
+          'El propietario firmó el acta');
+      expect(bandejaProfesional.single.leida, isFalse);
+      expect(bandejaProfesional.single.mensaje, contains('Estructura'));
+    });
+
+    test('el despachador de producción se construye y persiste la alerta',
+        () async {
+      final ctx = await _contexto('factory');
+      final dispatcher = buildNotificationDispatcher(database: ctx.db);
+
+      await dispatcher.notifyAvanceDeObra(
+        propietarioId: 'owner-1',
+        obraId: 'w1',
+        obraNombre: 'Torre Aurora',
+        hitoNombre: 'Fundaciones',
+        causa: 'evidencia de Foto cargada',
+      );
+
+      expect(await ctx.notifications.countUnread('owner-1'), 1);
     });
 
     test('sin propietario resoluble no se generan alertas (best-effort)',

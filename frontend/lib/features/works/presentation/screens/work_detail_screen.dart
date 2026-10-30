@@ -397,6 +397,10 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                       obraFechaInicio: current.fechaInicio,
                       propietarioEmail: current.propietarioEmail,
                       propietarioNombre: current.propietarioNombre,
+                      // CU-67/CU-68: IDs de ambos roles para el motor de
+                      // alertas (la campana de cada uno lee por usuario).
+                      propietarioId: current.propietarioId,
+                      profesionalId: current.profesionalId,
                       // CU-35: ancla geográfica (CU-15) para el guard de
                       // cercanía de la evidencia.
                       obraLatitud: current.latitud,

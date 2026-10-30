@@ -95,6 +95,11 @@ class MilestonesSection extends StatelessWidget {
   /// (precondición colegiada). En producción se crea sobre la BD local real.
   final PendingConformidadDataSource? pendingConformidadDao;
 
+  /// CU-67/CU-68 (RF_10): dueño y profesional de la obra, para que las
+  /// pantallas de captura y certificación puedan emitir las alertas.
+  final String? propietarioId;
+  final String? profesionalId;
+
   const MilestonesSection({
     super.key,
     required this.obraId,
@@ -112,6 +117,8 @@ class MilestonesSection extends StatelessWidget {
     this.ownerNotifier,
     this.auditLog,
     this.pendingConformidadDao,
+    this.propietarioId,
+    this.profesionalId,
   });
 
   /// Ancla de la ruta: acepta ISO (yyyy-MM-dd[THH:mm...]) y el formato
@@ -395,6 +402,9 @@ class MilestonesSection extends StatelessWidget {
           hito: milestone,
           obraNombre: obraNombre,
           propietarioNombre: propietarioNombre,
+          // CU-67/CU-68: IDs para el motor de alertas.
+          propietarioId: propietarioId,
+          profesionalId: profesionalId,
           firmante: isProfesional
               ? ConformidadRoles.profesional
               : ConformidadRoles.propietario,
@@ -425,6 +435,9 @@ class MilestonesSection extends StatelessWidget {
           propietarioNombre: propietarioNombre,
           firmante: ConformidadRoles.propietario,
           pendingConformidadDao: pendingConformidadDao,
+          // CU-67/CU-68: IDs para el motor de alertas.
+          propietarioId: propietarioId,
+          profesionalId: profesionalId,
         ),
       ),
     );
@@ -504,6 +517,9 @@ class MilestonesSection extends StatelessWidget {
           obraId: obraId,
           obraLatitud: obraLatitud,
           obraLongitud: obraLongitud,
+          // CU-67: el dueño de la obra recibe la alerta de avance.
+          propietarioId: propietarioId,
+          obraNombre: obraNombre,
         ),
       ),
     );
