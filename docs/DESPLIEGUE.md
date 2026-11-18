@@ -9,6 +9,39 @@ Documento operativo para publicar **ConstructING** en un dominio propio.
 
 ---
 
+## 0. Estado actual del despliegue (18/11/2026)
+
+| Componente | URL |
+|---|---|
+| **Frontend (Vercel)** | https://constructing-three.vercel.app |
+| **API (Railway)** | https://constructing-api-production.up.railway.app |
+| Proyecto Railway | `constructing-api` (servicio `constructing-api`, entorno `production`) |
+
+Publicado y verificado en producción:
+
+- `/`, `/main.dart.js` (compilado con `API_BASE_URL` apuntando a Railway),
+  `/flutter_bootstrap.js`, `/sqflite_sw.js`, `/assets/assets/images/logo.png`.
+- `/sqlite3.wasm` se sirve como `application/wasm` (necesario para la base
+  local del navegador).
+- Fallback SPA: cualquier ruta desconocida devuelve `index.html`.
+- API: `GET /` → 200 y `POST /auth/login` con credenciales inválidas → 401
+  (confirma que alcanza Supabase sin error de conexión).
+
+Notas de la implementación real:
+
+- Railway usa **Railpack** y su propio arranque: el `railway.json` está
+  deprecado y no se aplicó, así que el arranque queda garantizado por
+  `backend/Procfile` (`web: npm run start:prod`).
+- Las variables `DB_*` y `MAIL_*` se cargaron como variables del servicio.
+- Los adjuntos (actas y evidencias) se escriben en el **disco efímero** del
+  contenedor: se pierden en cada redeploy.
+- CORS sigue abierto (`origin: '*'`); restringirlo al dominio de Vercel antes
+  de un uso real.
+- **Dominio propio: pendiente.** Se agrega desde Vercel y Railway (CNAME) sin
+  recompilar, porque el build ya no depende del host.
+
+---
+
 ## 1. Arquitectura a publicar
 
 ```
