@@ -1,0 +1,74 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { UsersModule } from './users/users.module';
+import { WorksModule } from './works/works.module';
+import { AuthModule } from './auth/auth.module'; // <- Importar AuthModule
+import { SyncModule } from './sync/sync.module';
+import { CertificationsModule } from './certifications/certification.module';
+import { AuditLogsModule } from './audit-logs/audit-log.module';
+import { UserEntity } from './auth/user.entity';
+import { WorkEntity } from './works/entities/work.entity';
+import { WorkInvitationEntity } from './works/entities/work-invitation.entity';
+import { MilestoneSyncEntity } from './sync/milestone-sync.entity';
+import { EvidenceSyncEntity } from './sync/evidence-sync.entity';
+import { CertificationEntity } from './certifications/certification.entity';
+import { AuditLogEntity } from './audit-logs/audit-log.entity';
+import { NotificationsModule } from './notifications/notifications.module';
+import { NotificationEntity } from './notifications/notification.entity';
+import { NotificationPreferenceEntity } from './notifications/notification-preference.entity';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService): any => {
+        const isTest = process.env.NODE_ENV === 'test';
+
+          if (isTest) {
+          // Configuración ultrarrápida y aislada en memoria para pruebas E2E (QA-03)
+          return {
+            type: 'better-sqlite3', // <- Usamos el driver oficial soportado por TypeORM 0.3.x
+            database: ':memory:',
+            entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity, CertificationEntity, AuditLogEntity, NotificationEntity, NotificationPreferenceEntity],
+            synchronize: true,
+            dropSchema: true,
+          };
+        }
+
+        // Configuración oficial en PostgreSQL para Desarrollo y Producción (RNF-D-03)
+        // DB_SSL=true es necesario para Postgres administrados (Supabase, Neon, AWS RDS).
+        return {
+          type: 'postgres',
+          host: configService.get<string>('DB_HOST', 'localhost'),
+          port: configService.get<number>('DB_PORT', 5432),
+          username: configService.get<string>('DB_USER', 'postgres'),
+          password: configService.get<string>('DB_PASSWORD', 'postgres'),
+          database: configService.get<string>('DB_NAME', 'constructingsal'),
+          entities: [UserEntity, WorkEntity, WorkInvitationEntity, MilestoneSyncEntity, EvidenceSyncEntity, CertificationEntity, AuditLogEntity, NotificationEntity, NotificationPreferenceEntity],
+          synchronize: true,
+          ssl:
+            configService.get<string>('DB_SSL', 'false') === 'true'
+              ? { rejectUnauthorized: false }
+              : undefined,
+        };
+      },
+    }),
+    UsersModule,
+    WorksModule,
+    AuthModule,
+    SyncModule,
+    CertificationsModule,
+    AuditLogsModule,
+    NotificationsModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
