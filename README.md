@@ -1,150 +1,219 @@
 # ConstructING - Registrando Imperios 🏛️
 
-<img width="400" height="400" alt="constructING" src="https://github.com/user-attachments/assets/5f4d8de2-b999-4ab1-b930-c0e63154d2d7" />
+<img width="320" height="320" alt="constructING" src="https://github.com/user-attachments/assets/5f4d8de2-b999-4ab1-b930-c0e63154d2d7" />
 
+> **Ecosistema de Gestión y Auditoría Técnica de Obras.**
+> Reduce la asimetría de información entre el profesional y el propietario
+> mediante evidencia fehaciente y transparencia técnica.
 
-> **Ecosistema Mobile de Gestión y Auditoría Técnica de Obras.**  
-> Reduciendo la asimetría de información entre el profesional y el propietario mediante evidencia fehaciente y transparencia técnica.
-
-> ## 🎯 Estrategia de Producto
-> **Desarrollo mobile-first, entrega como URL web.** La interfaz se diseña con
-> mentalidad móvil primero, pero el producto final **NO es una app para
-> descargar** (sin APK/AAB ni tiendas). El artefacto distribuible se genera con
-> `flutter build web` y se sirve como una URL (ver
-> `frontend/lib/core/config/deployment.dart`).
+**Versión oficial:** `main` @ **`v1.0.0-mvp`** · Flutter Web + NestJS + PostgreSQL (Supabase)
 
 ---
 
-## 📌 Visión General
-**ConstructING** es una solución diseñada para resolver la desconfianza y la falta de comunicación en desarrollos inmobiliarios y reformas. A diferencia de los métodos informales (WhatsApp, minutas en papel), ConstructING ofrece un registro inalterable del ciclo de vida de la obra.
+## 🔗 Enlaces
 
-### El Problema 🚩
-Actualmente, el seguimiento de obra depende de la presencialidad constante del propietario o de informes técnicos difíciles de interpretar, lo que genera incertidumbre y potenciales conflictos legales.
-
-### La Solución ✅
-Una plataforma **Offline-First** que permite certificar hitos mediante evidencia multimedia georreferenciada y firmas digitales de conformidad en pantalla.
-
----
-
-## ✨ Funcionalidades Clave (MVP)
-*   **Certificación con Firma Digital**: Cierre de etapas críticas con rúbrica biométrica en el dispositivo.
-*   **Evidencia Multimedia Georreferenciada**: Captura de fotos/videos vinculados automáticamente a coordenadas GPS para garantizar la veracidad del peritaje.
-*   **Cálculo de Ruta Crítica (CPM)**: Ajuste automático de fechas de entrega ante desviaciones en hitos clave.
-*   **Sincronización Offline-First**: Operatividad total en entornos de obra con baja conectividad; sincronización inteligente al detectar red.
-*   **Audit Log Inalterable**: Trazabilidad completa de quién, cuándo y dónde se realizó cada modificación técnica.
+| Recurso | Enlace |
+|---|---|
+| 🟢 **App en producción** (demo) | **https://constructing-three.vercel.app** |
+| 🎬 **Video de presentación** (90 s · 4,29 MB) | [constructing-presentacion.mp4](https://github.com/NicolasSebastiandelRio/ConstructING/releases/download/v1.0.0-mvp/constructing-presentacion.mp4) |
+| 🟢 **API** (NestJS) | https://constructing-api-production.up.railway.app |
+| 📦 Release `v1.0.0-mvp` | https://github.com/NicolasSebastiandelRio/ConstructING/releases/tag/v1.0.0-mvp |
+| 🚀 Guía de despliegue | [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md) |
+| 🎥 Pipeline del video | [video/README.md](video/README.md) |
 
 ---
 
-## 🛠️ Stack Tecnológico Proyectado
-Para garantizar robustez y escalabilidad, el ecosistema se basa en:
+## 📌 Qué es
+
+**ConstructING** registra, certifica y audita el avance real de una obra. En vez
+de depender de WhatsApp, mails y minutas en papel, cada avance queda respaldado
+por **evidencia multimedia inalterable** y por la **conformidad firmada** de
+ambas partes.
+
+### El problema 🚩
+
+En Argentina el costo de construir subió **+31,9 % interanual** (INDEC, ICC
+oct-2026) mientras los presupuestos se desvían **entre 35 % y 50 %** frente al
+costo real (Forbes Argentina, 2025 — datos de plataforma). Cuando aparece la
+diferencia, nadie puede probar qué pasó, quién lo aprobó ni cuándo.
+
+### La solución ✅
+
+Una plataforma **offline-first** donde la evidencia se captura en obra con marca
+de agua y checksum, los hitos se cierran con **doble firma en pantalla** y cada
+acción queda en un **registro de auditoría** inalterable.
+
+---
+
+## ✨ Funcionalidades implementadas
+
+| Módulo | Qué hace |
+|---|---|
+| **Obras y roles** | Alta, ficha técnica, estados (En planificación → En ejecución → Completado), archivado, invitación de propietario por correo |
+| **Hoja de Ruta** | Hitos secuenciales, dependencias entre hitos y **ruta crítica (CPM)** con recálculo de fechas |
+| **Evidencia** | Captura desde cámara **o galería**, conversión automática a JPG, **recorte y giro**, marca de agua (fecha, hito, GPS) y **checksum SHA-256** |
+| **Certificación** | **Doble firma** (profesional + propietario) con trazo en pantalla, congelamiento de registros y **acta PDF** con logo y datos concisos |
+| **Auditoría** | 14 acciones registradas (hitos, dependencias, obras, evidencias, firmas) con *quién / qué / cuándo / dónde* |
+| **Notificaciones** | Motor de alertas con bandeja y campana para **ambos roles** (CU-67/68/69) |
+| **Offline-first** | Operación sin señal y sincronización automática al recuperar red |
+| **Seguridad** | Autenticación con roles, recuperación de contraseña y borrado seguro de archivos locales |
+
+---
+
+## 🧱 Stack implementado
 
 | Capa | Tecnología |
-| :--- | :--- |
-| **Frontend** | Flutter mobile-first → **entrega Web (URL)** |
-| **Backend API** | NestJS (Node.js) |
-| **Base de Datos** | PostgreSQL (PostGIS para georreferencia) |
-| **Infraestructura** | Supabase / AWS |
-| **Documentación** | UML, SRS bajo estándar IEEE |
+|---|---|
+| **Frontend** | Flutter mobile-first → entregado como **Web** (`flutter build web`) |
+| **Estado** | BLoC + Clean Architecture (`features/{domain,data,presentation}`) |
+| **Base local** | SQLite (IndexedDB en web) con migraciones versionadas |
+| **Backend API** | NestJS + TypeORM |
+| **Base de datos** | PostgreSQL gestionado en **Supabase** |
+| **Deploy** | **Vercel** (frontend estático) · **Railway** (API) |
 
 ---
 
-## ▶️ Puesta en Marcha Local
+## 🚀 Producción
 
-### Opción A — Supabase (recomendada, sin instalar nada)
-1. Crear el proyecto en [supabase.com](https://supabase.com) y anotar la password.
-2. Completar `backend/.env` con los datos del proyecto (ver tabla de variables).
-3. Arrancar el backend (crea el esquema automáticamente con `synchronize:true`):
-```bash
-cd backend
-npm install
-npm run start:dev   # API en http://localhost:3000
-```
+| Componente | Dónde | URL |
+|---|---|---|
+| Frontend | Vercel | https://constructing-three.vercel.app |
+| API | Railway (`constructing-api`) | https://constructing-api-production.up.railway.app |
+| Base de datos | Supabase | *(gestionada)* |
 
-### Opción B — PostgreSQL local con Docker
-Requisito: [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado y en ejecución.
-```bash
-docker compose up -d   # PostgreSQL 16 en puerto 5432, BD constructingsal
-cd backend
-npm install
-npm run start:dev
-```
+El frontend se compila con la URL de la API incrustada:
 
-### Variables de entorno (`backend/.env`)
-| Variable | Ejemplo local (Docker) | Ejemplo Supabase | Descripción |
-| :--- | :--- | :--- | :--- |
-| `DB_HOST` | `localhost` | `db.xxxxx.supabase.co` | Host de PostgreSQL |
-| `DB_PORT` | `5432` | `5432` | Puerto |
-| `DB_USER` | `postgres` | `postgres` | Usuario |
-| `DB_PASSWORD` | `postgres` | *(password del proyecto)* | Contraseña |
-| `DB_NAME` | `constructingsal` | `postgres` | Base de datos |
-| `DB_SSL` | *(omitir)* | `true` | Obligatorio en Postgres administrados (Supabase/Neon/RDS) |
-| `MAIL_HOST` | `smtp.ethereal.email` | `smtp.ethereal.email` | Servidor SMTP |
-| `MAIL_PORT` | `587` | `587` | Puerto SMTP |
-| `MAIL_USER` | *(cuenta Ethereal)* | *(cuenta Ethereal)* | Usuario SMTP (crear en [ethereal.email](https://ethereal.email)) |
-| `MAIL_PASS` | *(clave Ethereal)* | *(clave Ethereal)* | Contraseña SMTP |
-
-> Los correos de Ethereal no llegan a casillas reales: se visualizan en
-> [ethereal.email/login](https://ethereal.email/login) con el usuario y clave
-> de la cuenta. Ideal para probar bienvenida (CU-12), recuperación (CU-03) e
-> invitaciones (CU-22) sin spamear.
-
-### Entrega Web (el producto final es una URL)
-El mismo código mobile-first compila a web sin cambios (`flutter build web`
-verificado). No se publica en tiendas:
 ```bash
 cd frontend
-flutter run -d edge --web-port=8080   # desarrollo en el navegador
-flutter build web        # artefacto en build/web → subir a hosting estático
+flutter build web --release --dart-define=API_BASE_URL=https://constructing-api-production.up.railway.app
+copy vercel.json build\web\vercel.json
+cd build\web && vercel deploy --prod --yes
 ```
-> - Usá siempre el mismo `--web-port`: la caché local (IndexedDB) está atada
->   al puerto y con otro puerto los hitos "desaparecen".
-> - La caché local necesita `frontend/web/sqlite3.wasm` y `sqflite_sw.js`
->   (ya commiteados). Si se actualiza el paquete `sqflite_common_ffi_web`,
->   regenerarlos con `dart run sqflite_common_ffi_web:setup` (o `--force`).
-> Nota: en web, `flutter_secure_storage` persiste en `localStorage` (no es
-> almacenamiento seguro real). Para producción web se recomienda migrar la
-> sesión a cookies `httpOnly` gestionadas por el backend.
+
+> El build **debe** incluir `sqlite3.wasm` y `sqflite_sw.js`: son la base local
+> del navegador. Sin ellos la app abre sin datos.
+> Detalle completo en [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md).
 
 ---
 
-> Si ves `ECONNREFUSED 127.0.0.1:5432` al iniciar el backend, no hay ningún
-> PostgreSQL alcanzable con esos valores: verificá el contenedor
-> (`docker compose ps`) o los datos del proyecto en Supabase.
+## 💻 Puesta en marcha local
+
+### Backend
+
+```bash
+cd backend
+npm install
+npm run start:dev        # API en http://localhost:3000
+```
+
+### Frontend
+
+```bash
+cd frontend
+flutter run -d chrome --web-port=8080
+```
+
+> Usá siempre el mismo `--web-port`: la caché local (IndexedDB) está atada al
+> origen y con otro puerto los datos "desaparecen".
+
+### Variables de entorno (`backend/.env`)
+
+| Variable | Ejemplo local (Docker) | Ejemplo Supabase |
+|---|---|---|
+| `DB_HOST` | `localhost` | `db.xxxxx.supabase.co` |
+| `DB_PORT` | `5432` | `5432` |
+| `DB_USER` | `postgres` | `postgres` |
+| `DB_PASSWORD` | `postgres` | *(password del proyecto)* |
+| `DB_NAME` | `constructingsal` | `postgres` |
+| `DB_SSL` | *(omitir)* | `true` |
+| `MAIL_HOST` / `MAIL_PORT` | `smtp.ethereal.email` / `587` | ídem |
+| `MAIL_USER` / `MAIL_PASS` | *(cuenta Ethereal)* | ídem |
+
+> Los correos de Ethereal no llegan a casillas reales: se leen en
+> [ethereal.email/login](https://ethereal.email/login). Ideal para probar
+> bienvenida, recuperación e invitaciones sin spamear.
+
+Alternativa con PostgreSQL local por Docker:
+
+```bash
+docker compose up -d   # PostgreSQL 16 en :5432, BD constructingsal
+```
 
 ---
 
-## 📅 Hoja de Ruta (Seminario de Integración Profesional)
+## 🎬 Video de presentación
 
-### Fase 1: Planeamiento y Arquitectura (Q1 2026) 🏗️
-*   [x] Project Charter y Definición de Objetivos SMART.
-*   [x] Especificación de Requerimientos de Software (SRS).
-*   [x] Diseño de Modelo Entidad-Relación (DER).
-*   [x] Especificación de Casos de Uso y Diagramas UML.
-*   [x] Prototipado de Alta Fidelidad en Figma.
-*   [x] Armado de tablero gantt
+Reel horizontal de **90 s** que presenta el sistema (no es una demo paso a paso).
 
-### Fase 2: Desarrollo y Entrega (Q2 2026) 🚀
-*   [ ] Configuración de entorno Backend y Base de Datos.
-*   [ ] Implementación de Módulos Core (Evidencia y Firmas).
-*   [ ] Pruebas de Integración y Modo Offline.
-*   [ ] Defensa Final (Diciembre 2026).
+| Requisito de la cátedra | Entrega |
+|---|---|
+| Presentación (no demo ni tutorial) | 8 bloques narrativos |
+| Duración 1–2 minutos | **90,000 s** |
+| Ancho 1024 px · H.264 · MP4 | **1024 × 576** · H.264 High · MP4 |
+| Audio estéreo 44 kHz | **AAC 44,1 kHz estéreo** |
+| Peso ≤ 20 MB | **4,29 MB** |
+| Placa con alumno, proyecto, logo, año, materia y docente | Presente al final |
+
+**Contenido**: dato de costo (INDEC) → pregunta → qué es ConstructING → hoja de
+ruta y ruta crítica → evidencia con marca fija → doble firma y acta PDF →
+auditoría y modo offline → datos del sector y placa final.
+
+**Créditos obligatorios** (impresos en la placa): datos de INDEC
+(06/11/2026 y 17/11/2026) y Forbes Argentina (2025); música *"Inspired"* de
+Kevin MacLeod (incompetech.com, CC BY 4.0); foto de obra de Flocci Nivis
+(Wikimedia Commons, CC BY 4.0).
+
+El video se genera con Python (Pillow) + ffmpeg, cuadro por cuadro. Pipeline,
+guion y comandos de re-render en [video/README.md](video/README.md).
 
 ---
 
-## 📁 Estructura del Repositorio
-*   [`/docs`](/docs): Documentación técnica integral del proyecto.
+## 📁 Estructura del repositorio
+
+```
+backend/       API NestJS (módulos: auth, users, works, sync, certifications, notifications, audit-logs)
+frontend/      App Flutter (features/{domain,data,presentation})
+docs/          Documentación técnica + guía de despliegue
+video/         Pipeline del video de presentación (scripts y guion; binarios fuera de git)
+```
+
+---
+
+## 📅 Estado del proyecto
+
+- **Sprints 1 a 7 completados** (MVP + mejoras post-MVP).
+- Versión oficial etiquetada **`v1.0.0-mvp`** y desplegada.
+- Suites: **408** tests de Flutter, **141** unitarios y **74** e2e de backend, todas en verde.
+
+### Limitaciones conocidas
+
+| Limitación | Alcance |
+|---|---|
+| Evidencias en web | El binario vive como `blob:` del navegador y muere al recargar (queda pendiente de sincronizar); los hitos y actas sí persisten |
+| Notificaciones y auditoría | Se guardan en la base local del dispositivo; el envío al backend no está cableado |
+| Adjuntos del backend | Disco efímero en Railway: se pierden en cada redeploy |
+| CORS | Abierto (`*`); restringir al dominio propio antes de un uso real |
+| Dominio propio | Pendiente: se agrega desde Vercel/Railway sin recompilar |
 
 ---
 
 ## 👤 Autor
-**Nicolas Sebastian del Rio**  
-Estudiante de Ingeniería en Informática - Universidad del Salvador (USAL).  
-[GitHub](https://github.com/nicolassebastiandelrio) | [Portfolio]([https://nicolassebastiandelrio.github.io/webPortfolio/](https://nicolassebastiandelrio.github.io/portfolioWeb-ndelrio/))
+
+**Nicolás Sebastián del Río**
+Estudiante de Ingeniería en Informática — Universidad del Salvador (USAL)
+[Sitio](https://constructing-three.vercel.app) · [GitHub](https://github.com/NicolasSebastiandelRio)
+
+**Materia:** Seminario de Integración Profesional · **Docente:** Lic. C. López Pasaron · **Año:** 2026
 
 ---
 
-## ⚖️ Licencia y Propiedad Intelectual
-**ConstructING - Ecosistema de Gestión y Auditoría Técnica de Obras.**
-Copyright (c) 2026 Nicolas Sebastian del Rio. All rights reserved.
+## ⚖️ Licencia y propiedad intelectual
 
-Este proyecto es de código cerrado y propiedad intelectual exclusiva de su autor. Ninguna parte de este software, documentación (incluyendo especificaciones de requerimientos, diagramas UML, Modelo Entidad-Relación y prototipos) o archivos asociados puede ser reproducida, distribuida o transmitida en forma alguna o por ningún medio, sin la autorización expresa y por escrito del autor.
+**ConstructING — Ecosistema de Gestión y Auditoría Técnica de Obras.**
+Copyright (c) 2026 Nicolás Sebastián del Río. Todos los derechos reservados.
+
+Proyecto de código cerrado y propiedad intelectual exclusiva de su autor.
+Ninguna parte de este software, documentación (especificaciones de
+requerimientos, diagramas UML, modelo entidad-relación y prototipos) ni archivos
+asociados puede ser reproducida, distribuida o transmitida por ningún medio sin
+la autorización expresa y por escrito del autor.
